@@ -12,6 +12,7 @@
   var pinPertama = ''; // untuk konfirmasi saat buat PIN baru
   var modeBuatPin = false;
   var bulanKalender = new Date(); // bulan yang sedang ditampilkan
+  var riwayatCache = {}; // { 'YYYY-MM': [records] } — supaya kalender tampil instan, tanpa nunggu network
 
   // ============ ELEMEN ============
   var $ = function (id) {
@@ -424,6 +425,17 @@
           // sudah tercatat sebelumnya — cukup tampilkan status, tanpa layar sukses
           return;
         }
+
+        // Simpan langsung ke cache kalender bulan ini — supaya begitu user
+        // pindah ke Riwayat, tanggal hari ini SUDAH hijau tanpa nunggu fetch
+        simpanKeCacheRiwayat(sesi.id_karyawan, {
+          tanggal: data.tanggal,
+          waktu: data.waktu,
+          tipe_absen: 'MASUK',
+          status_lokasi: data.status_lokasi
+        });
+
+        $('tanggal-sukses').textContent = formatTanggalIndonesia(new Date());
         $('jam-sukses').textContent = jamPendek(data.waktu);
         tampilkanLayar('layar-sukses');
       })
@@ -481,21 +493,64 @@
     }
 
     var bulanParam = tahun + '-' + pad2(bulanIdx + 1);
+
+    // Tampilkan dari cache DULU (instan, tanpa nunggu network) kalau ada —
+    // ini yang menghilangkan jeda ~3 detik saat pindah dari layar Absen ke
+    // Riwayat. Data server tetap diambil di belakang layar untuk sinkronisasi
+    // (misal ada absen dari device lain, atau input manual admin di Sheet).
+    if (riwayatCache[bulanParam]) {
+      tandaiHadirDiGrid(riwayatCache[bulanParam]);
+    }
+
     apiGet({ action: 'riwayat', id_karyawan: sesi.id_karyawan, bulan: bulanParam })
       .then(function (data) {
         if (!data.ok) throw new Error(data.error);
-        data.records.forEach(function (r) {
-          var sel = grid.querySelector('[data-tanggal="' + r.tanggal + '"]');
-          if (sel) sel.classList.add('hadir');
-        });
+        riwayatCache[bulanParam] = data.records;
+        // Bulan yang ditampilkan bisa saja sudah berganti selagi fetch
+        // berjalan (user keburu pencet panah bulan) — jangan timpa grid
+        // yang salah.
+        var bulanSekarangDitampilkan =
+          bulanKalender.getFullYear() + '-' + pad2(bulanKalender.getMonth() + 1);
+        if (bulanParam === bulanSekarangDitampilkan) {
+          tandaiHadirDiGrid(data.records);
+        }
       })
       .catch(function () {
-        $('riwayat-error').textContent = pesanKoneksi();
+        // Kalau sudah ada data dari cache, kegagalan network tidak perlu
+        // ditampilkan sebagai error — kalender tetap kelihatan benar.
+        if (!riwayatCache[bulanParam]) {
+          $('riwayat-error').textContent = pesanKoneksi();
+        }
       });
   }
 
   function pad2(n) {
     return (n < 10 ? '0' : '') + n;
+  }
+
+  // Tandai tanggal "hadir" langsung di elemen grid kalender yang sedang
+  // tampil (kalau bulan yang cocok sedang dibuka) — dipakai baik oleh cache
+  // lokal maupun oleh data segar dari server, supaya keduanya konsisten.
+  function tandaiHadirDiGrid(records) {
+    var grid = $('kalender-grid');
+    records.forEach(function (r) {
+      var sel = grid.querySelector('[data-tanggal="' + r.tanggal + '"]');
+      if (sel) sel.classList.add('hadir');
+    });
+  }
+
+  function simpanKeCacheRiwayat(idKaryawan, record) {
+    var bulan = record.tanggal.substring(0, 7);
+    var arr = riwayatCache[bulan] || [];
+    var sudahAda = arr.some(function (r) {
+      return r.tanggal === record.tanggal && r.tipe_absen === record.tipe_absen;
+    });
+    if (!sudahAda) arr.push(record);
+    riwayatCache[bulan] = arr;
+    // Kalau kalender bulan ini sedang tampil di layar, langsung tandai juga
+    if ($('layar-riwayat').classList.contains('aktif') && bulan === tanggalISO(bulanKalender).substring(0, 7)) {
+      tandaiHadirDiGrid([record]);
+    }
   }
 
   $('btn-bulan-prev').addEventListener('click', function () {
