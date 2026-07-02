@@ -4,7 +4,7 @@
  * Naikkan angka VERSI setiap kali ada perubahan file frontend.
  */
 
-var VERSI = 'absensi-ok-v3';
+var VERSI = 'absensi-ok-v4';
 
 var APP_SHELL = [
   './',

@@ -57,9 +57,11 @@ Satu alur untuk semua kasus:
 
 1. Buka Sheet → tab `Karyawan` → cari baris nama karyawan.
 2. Kosongkan sel `pin_hash` (klik sel → Delete).
-3. Karyawan buka app di HP mana pun → pilih nama → otomatis diminta **Buat PIN Baru** → selesai.
+3. Karyawan buka app di HP mana pun (HP baru, HP lama yang sudah pernah login, atau pinjam HP orang lain) → app otomatis mendeteksi PIN sudah direset dan meminta **Buat PIN Baru** → selesai.
 
-Mengosongkan `pin_hash` tidak mengganggu device lain yang sudah login.
+App selalu mengecek status ke server tiap kali dibuka (bukan cuma percaya sesi tersimpan di HP), jadi mengosongkan `pin_hash` langsung "memaksa keluar" device manapun yang sedang login dengan identitas itu — termasuk device lama yang belum sempat diganti. Efek yang sama berlaku kalau `status` diubah jadi `Nonaktif`: device yang sedang login akan otomatis diminta setup ulang (dan tidak akan lolos karena karyawan nonaktif tidak muncul di daftar) — ini jadi tombol darurat kalau HP dicuri/disalahgunakan, cukup ubah `status`, tanpa langkah tambahan lain.
+
+**Catatan untuk testing:** kalau kamu menguji reset ini di HP/browser yang sama yang dipakai login, tutup dan buka ulang app (atau refresh) supaya app menjalankan pengecekan ke server — perubahan di Sheet tidak akan terasa kalau app-nya cuma dibiarkan terbuka di layar yang sama tanpa reload.
 
 ## Kelola Karyawan (via Sheet langsung)
 

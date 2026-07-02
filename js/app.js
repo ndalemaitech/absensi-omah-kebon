@@ -111,10 +111,61 @@
     }
     var sesi = getSesi();
     if (sesi && sesi.id_karyawan) {
-      bukaLayarAbsen(sesi);
+      validasiSesi(sesi);
     } else {
       mulaiSetup();
     }
+  }
+
+  // Sesi tersimpan di HP TIDAK otomatis dipercaya — selalu dicek ulang ke
+  // server tiap app dibuka. Ini membuat satu aksi admin di Sheet (kosongkan
+  // pin_hash ATAU ubah status jadi Nonaktif) langsung berlaku di device
+  // manapun yang sedang login, tanpa perlu device itu online terus-menerus
+  // atau ada mekanisme "paksa logout" terpisah.
+  function validasiSesi(sesi) {
+    tampilkanLayar('layar-loading');
+    apiGet({ action: 'getKaryawan' })
+      .then(function (data) {
+        if (!data.ok) {
+          // gagal ambil data (bukan berarti sesi tidak valid) — tetap izinkan
+          // pakai sesi lama supaya app tetap bisa dipakai saat koneksi jelek
+          bukaLayarAbsen(sesi);
+          return;
+        }
+        daftarKaryawan = data.karyawan;
+        var k = daftarKaryawan.find(function (x) {
+          return x.id_karyawan === sesi.id_karyawan;
+        });
+        if (!k || k.perlu_pin_baru) {
+          // admin sudah kosongkan pin_hash, atau karyawan dinonaktifkan →
+          // sesi lama dianggap tidak berlaku lagi, paksa setup ulang
+          localStorage.removeItem(KUNCI_SESI);
+          mulaiSetupDenganDaftarSiap();
+        } else {
+          bukaLayarAbsen(sesi);
+        }
+      })
+      .catch(function () {
+        // offline saat buka app — tetap izinkan pakai sesi lama, jangan
+        // kunci karyawan keluar hanya karena tidak ada internet sesaat
+        bukaLayarAbsen(sesi);
+      });
+  }
+
+  // Sama seperti mulaiSetup(), tapi tidak fetch ulang getKaryawan karena
+  // datanya sudah didapat dari validasiSesi()
+  function mulaiSetupDenganDaftarSiap() {
+    var select = $('pilih-nama');
+    select.innerHTML = '<option value="">-- Pilih nama --</option>';
+    daftarKaryawan.forEach(function (k) {
+      var opt = document.createElement('option');
+      opt.value = k.id_karyawan;
+      opt.textContent = k.nama;
+      select.appendChild(opt);
+    });
+    $('setup-pilih-nama').classList.remove('tersembunyi');
+    $('setup-pin').classList.add('tersembunyi');
+    tampilkanLayar('layar-setup');
   }
 
   // ============ LAYAR SETUP ============
