@@ -52,12 +52,13 @@
   }
 
   function apiGet(params) {
+    params._ = Date.now(); // cache-buster: data harus selalu segar (mis. setelah admin reset PIN)
     var query = Object.keys(params)
       .map(function (k) {
         return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
       })
       .join('&');
-    return fetch(API_URL + '?' + query).then(function (res) {
+    return fetch(API_URL + '?' + query, { cache: 'no-store' }).then(function (res) {
       return res.json();
     });
   }
@@ -67,6 +68,7 @@
   function apiPost(body) {
     return fetch(API_URL, {
       method: 'POST',
+      cache: 'no-store',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(body)
     }).then(function (res) {
@@ -291,6 +293,26 @@
       });
   }
 
+  // ---- konfirmasi sebelum absen dikirim ----
+
+  var intervalJamKonfirmasi = null;
+
+  function bukaKonfirmasi() {
+    var perbaruiJam = function () {
+      var now = new Date();
+      $('jam-konfirmasi').textContent =
+        pad2(now.getHours()) + '.' + pad2(now.getMinutes()) + '.' + pad2(now.getSeconds());
+    };
+    perbaruiJam();
+    intervalJamKonfirmasi = setInterval(perbaruiJam, 1000);
+    $('modal-konfirmasi').classList.remove('tersembunyi');
+  }
+
+  function tutupKonfirmasi() {
+    clearInterval(intervalJamKonfirmasi);
+    $('modal-konfirmasi').classList.add('tersembunyi');
+  }
+
   $('btn-absen').addEventListener('click', function () {
     var sesi = getSesi();
     if (!sesi) return mulaiSetup();
@@ -299,6 +321,15 @@
       $('status-absen').textContent = 'HP ini tidak mendukung GPS.';
       return;
     }
+    bukaKonfirmasi();
+  });
+
+  $('btn-konfirmasi-batal').addEventListener('click', tutupKonfirmasi);
+
+  $('btn-konfirmasi-ya').addEventListener('click', function () {
+    tutupKonfirmasi();
+    var sesi = getSesi();
+    if (!sesi) return mulaiSetup();
 
     $('btn-absen').disabled = true;
     tampilkanOverlay('Mencari lokasi...');

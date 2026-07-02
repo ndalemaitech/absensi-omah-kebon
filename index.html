@@ -34,6 +34,10 @@
           <option value="">-- Pilih nama --</option>
         </select>
         <button id="btn-lanjut-nama" class="btn btn-utama" disabled>LANJUT</button>
+        <p class="info-setup">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
+          <span>Pengaturan ini cukup <strong>sekali saja</strong>. Setelah pilih nama dan buat PIN, HP ini langsung siap dipakai absen setiap hari — tanpa PIN lagi.</span>
+        </p>
       </div>
 
       <!-- Langkah 2: PIN -->
@@ -137,9 +141,23 @@
     </button>
   </nav>
 
+  <!-- Modal konfirmasi sebelum absen dikirim -->
+  <div id="modal-konfirmasi" class="overlay tersembunyi" role="dialog" aria-modal="true" aria-labelledby="judul-konfirmasi">
+    <div class="kartu-konfirmasi">
+      <p id="judul-konfirmasi" class="judul-konfirmasi">Absen masuk sekarang?</p>
+      <p id="jam-konfirmasi" class="jam-konfirmasi" aria-live="polite"></p>
+      <button id="btn-konfirmasi-ya" class="btn btn-utama">YA, ABSEN SEKARANG</button>
+      <button id="btn-konfirmasi-batal" class="btn btn-batal">BATAL</button>
+    </div>
+  </div>
+
   <!-- Overlay proses (ambil GPS / kirim data) -->
   <div id="overlay-proses" class="overlay tersembunyi">
-    <div class="spinner" aria-hidden="true"></div>
+    <div class="spinner-wrap" aria-hidden="true">
+      <span class="gelombang"></span>
+      <span class="gelombang gelombang-2"></span>
+      <div class="spinner"></div>
+    </div>
     <p id="overlay-teks" class="teks-sedang">Mencari lokasi...</p>
   </div>
 

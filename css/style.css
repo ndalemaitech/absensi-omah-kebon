@@ -170,6 +170,36 @@ h1 {
   opacity: 0.4;
 }
 
+.btn-batal {
+  background: var(--putih);
+  color: var(--teks-redup);
+  border: 2px solid var(--abu-border);
+}
+
+.btn-batal:active {
+  background: var(--latar);
+}
+
+.info-setup {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  text-align: left;
+  background: var(--hijau-muda);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--hijau-gelap);
+}
+
+.info-setup svg {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
 /* PIN */
 
 .pin-dots {
@@ -309,6 +339,46 @@ h1 {
   color: #9ca3af;
 }
 
+/* ============ MODAL KONFIRMASI ============ */
+
+.kartu-konfirmasi {
+  background: var(--putih);
+  border-radius: 24px;
+  padding: 28px 24px;
+  width: min(88vw, 380px);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: center;
+  box-shadow: 0 20px 50px rgba(6, 78, 59, 0.25);
+  animation: muncul 0.25s ease-out;
+}
+
+.judul-konfirmasi {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--hijau-gelap);
+}
+
+.jam-konfirmasi {
+  font-size: 48px;
+  font-weight: 900;
+  color: var(--hijau);
+  letter-spacing: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes muncul {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
 /* ============ LAYAR SUKSES ============ */
 
 .layar-sukses {
@@ -326,11 +396,40 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: center;
+  animation: pop-sukses 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .lingkaran-sukses svg {
   width: 80px;
   height: 80px;
+}
+
+.lingkaran-sukses svg path {
+  stroke-dasharray: 30;
+  stroke-dashoffset: 30;
+  animation: gambar-centang 0.4s ease-out 0.35s forwards;
+}
+
+.judul-sukses,
+.jam-sukses {
+  animation: muncul 0.4s ease-out 0.45s backwards;
+}
+
+@keyframes pop-sukses {
+  0% {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes gambar-centang {
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 .judul-sukses {
@@ -527,6 +626,41 @@ h1 {
   animation: putar 0.9s linear infinite;
 }
 
+/* Gelombang melebar di sekeliling spinner saat proses absen */
+.spinner-wrap {
+  position: relative;
+  width: 56px;
+  height: 56px;
+}
+
+.spinner-wrap .spinner {
+  position: relative;
+  z-index: 1;
+}
+
+.gelombang {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid var(--hijau);
+  animation: gelombang 1.6s ease-out infinite;
+}
+
+.gelombang-2 {
+  animation-delay: 0.8s;
+}
+
+@keyframes gelombang {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
 @keyframes putar {
   to {
     transform: rotate(360deg);
@@ -536,6 +670,17 @@ h1 {
 @media (prefers-reduced-motion: reduce) {
   .spinner {
     animation-duration: 2s;
+  }
+  .gelombang,
+  .lingkaran-sukses,
+  .lingkaran-sukses svg path,
+  .judul-sukses,
+  .jam-sukses,
+  .kartu-konfirmasi {
+    animation: none !important;
+  }
+  .lingkaran-sukses svg path {
+    stroke-dashoffset: 0;
   }
   * {
     transition-duration: 0.01ms !important;
