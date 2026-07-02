@@ -24,6 +24,10 @@
 html,
 body {
   height: 100%;
+  /* Cegah double-tap-to-zoom (mengganggu terutama saat ngetik PIN cepat
+     berkali-kali di keypad). Sebagian browser Android tetap zoom meski
+     viewport sudah user-scalable=no, jadi dikunci juga lewat CSS di sini. */
+  touch-action: manipulation;
 }
 
 body {
