@@ -4,7 +4,7 @@
  * Naikkan angka VERSI setiap kali ada perubahan file frontend.
  */
 
-var VERSI = 'absensi-ok-v2';
+var VERSI = 'absensi-ok-v3';
 
 var APP_SHELL = [
   './',
@@ -60,9 +60,12 @@ self.addEventListener('fetch', function (event) {
   if (event.request.method !== 'GET') return;
 
   // App shell: network-first supaya update frontend cepat terambil,
-  // fallback ke cache kalau offline
+  // fallback ke cache kalau offline.
+  // cache: 'no-cache' → selalu revalidasi ke server (ETag), jangan pakai
+  // cache HTTP browser — CDN GitHub Pages set max-age=600 yang bisa
+  // menyajikan file lama sampai 10 menit setelah deploy.
   event.respondWith(
-    fetch(event.request)
+    fetch(event.request, { cache: 'no-cache' })
       .then(function (res) {
         var salinan = res.clone();
         caches.open(VERSI).then(function (cache) {
