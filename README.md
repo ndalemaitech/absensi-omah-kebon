@@ -46,10 +46,13 @@ Setiap push ke `main` otomatis ter-deploy (tunggu ± 1 menit). Kalau ada perubah
 ## Alur Pakai (untuk testing)
 
 1. Buka URL app di HP → pilih nama → buat PIN 4 digit (2x) → masuk layar absen.
-2. Tekan tombol **ABSEN MASUK** → izinkan lokasi → muncul layar sukses + jam.
-3. Cek tab `Absensi` di Sheet: baris baru dengan koordinat, jarak (meter), dan `status_lokasi`.
-4. Tab **Riwayat** di app: tanggal hari ini jadi hijau di kalender.
-5. Chrome Android akan menawarkan **"Tambahkan ke Layar Utama"** (atau lewat menu ⋮).
+2. Tekan tombol besar (awalnya **ABSEN MASUK**) → izinkan lokasi → muncul layar sukses dengan tanggal, jam, dan info lokasi tercatat.
+3. Setelah SELESAI, tombol yang SAMA otomatis berubah jadi **ABSEN PULANG** (bukan tombol terpisah) — status di bawahnya menampilkan jam masuk. Tekan lagi untuk absen pulang.
+4. Setelah masuk & pulang lengkap, tombol nonaktif dan menampilkan "SUDAH LENGKAP" beserta jam masuk & pulang, sampai hari berikutnya (reset otomatis per hari).
+5. Absen pulang tidak bisa dilakukan tanpa absen masuk di hari yang sama — backend akan menolak dengan pesan "Anda belum absen masuk hari ini."
+6. Cek tab `Absensi` di Sheet: baris baru dengan koordinat, jarak (meter), `status_lokasi`, dan `tipe_absen` (MASUK/PULANG).
+7. Tab **Riwayat** di app: tanggal hari ini jadi hijau di kalender segera setelah absen (instan, tidak perlu nunggu network).
+8. Chrome Android akan menawarkan **"Tambahkan ke Layar Utama"** (atau lewat menu ⋮).
 
 ## SOP Admin: Reset Akses (HP rusak / hilang / ketinggalan)
 

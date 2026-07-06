@@ -75,16 +75,25 @@
     </header>
 
     <div class="area-absen">
+      <!-- Satu tombol yang berubah makna sesuai progres hari ini:
+           belum absen sama sekali → "ABSEN MASUK"
+           sudah masuk, belum pulang → "ABSEN PULANG"
+           sudah dua-duanya → nonaktif, "SUDAH ABSEN LENGKAP"
+           Ini sengaja satu tombol (bukan dua tombol terpisah) supaya tetap
+           sesederhana mungkin buat karyawan paling awam teknologi. -->
       <button id="btn-absen" class="btn-absen">
-        <svg class="ikon-absen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <svg id="ikon-absen-masuk" class="ikon-absen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M9 11l3 3L22 4" />
           <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+        </svg>
+        <svg id="ikon-absen-pulang" class="ikon-absen tersembunyi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+          <path d="M16 17l5-5-5-5" />
+          <path d="M21 12H9" />
         </svg>
         <span id="btn-absen-teks">ABSEN<br />MASUK</span>
       </button>
       <p id="status-absen" class="status-absen"></p>
-      <!-- Ruang tombol ABSEN PULANG — nonaktif di V1, tinggal diaktifkan nanti -->
-      <button id="btn-absen-pulang" class="btn-absen-pulang" disabled hidden>ABSEN PULANG</button>
     </div>
   </section>
 
@@ -96,7 +105,7 @@
           <path d="M20 6L9 17l-5-5" />
         </svg>
       </div>
-      <h2 class="judul-sukses">Absen Berhasil</h2>
+      <h2 id="judul-sukses" class="judul-sukses">Absen Masuk Berhasil</h2>
       <p id="tanggal-sukses" class="tanggal-sukses"></p>
       <p id="jam-sukses" class="jam-sukses"></p>
       <p id="lokasi-sukses" class="lokasi-sukses">

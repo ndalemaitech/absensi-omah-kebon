@@ -13,6 +13,8 @@
   var modeBuatPin = false;
   var bulanKalender = new Date(); // bulan yang sedang ditampilkan
   var riwayatCache = {}; // { 'YYYY-MM': [records] } — supaya kalender tampil instan, tanpa nunggu network
+  var statusHariIni = { masuk: null, pulang: null }; // waktu (string) atau null
+  var tipeAbsenAktif = 'MASUK'; // tipe yang akan dikirim kalau tombol besar ditekan sekarang
 
   // ============ ELEMEN ============
   var $ = function (id) {
@@ -313,35 +315,54 @@
     cekAbsenHariIni(sesi);
   }
 
-  function setTombolAbsen(sudahAbsen, jam) {
+  // Gambar ulang tombol besar sesuai statusHariIni. Satu tombol, tiga
+  // kemungkinan tampilan — bukan dua tombol terpisah, supaya tetap
+  // sesederhana mungkin.
+  function perbaruiTombolAbsen() {
     var btn = $('btn-absen');
-    if (sudahAbsen) {
-      btn.disabled = true;
-      $('btn-absen-teks').innerHTML = 'SUDAH<br />ABSEN';
-      $('status-absen').textContent = 'Anda sudah absen jam ' + jamPendek(jam);
-    } else {
+    var ikonMasuk = $('ikon-absen-masuk');
+    var ikonPulang = $('ikon-absen-pulang');
+
+    if (!statusHariIni.masuk) {
+      tipeAbsenAktif = 'MASUK';
       btn.disabled = false;
       $('btn-absen-teks').innerHTML = 'ABSEN<br />MASUK';
       $('status-absen').textContent = '';
+      ikonMasuk.classList.remove('tersembunyi');
+      ikonPulang.classList.add('tersembunyi');
+    } else if (!statusHariIni.pulang) {
+      tipeAbsenAktif = 'PULANG';
+      btn.disabled = false;
+      $('btn-absen-teks').innerHTML = 'ABSEN<br />PULANG';
+      $('status-absen').textContent = 'Sudah absen masuk jam ' + jamPendek(statusHariIni.masuk);
+      ikonMasuk.classList.add('tersembunyi');
+      ikonPulang.classList.remove('tersembunyi');
+    } else {
+      btn.disabled = true;
+      $('btn-absen-teks').innerHTML = 'SUDAH<br />LENGKAP';
+      $('status-absen').textContent =
+        'Masuk ' + jamPendek(statusHariIni.masuk) + ' · Pulang ' + jamPendek(statusHariIni.pulang);
     }
   }
 
   function cekAbsenHariIni(sesi) {
     var hariIni = new Date();
-    var bulan = tanggalISO(hariIni).substring(0, 7);
+    var tglIni = tanggalISO(hariIni);
+    var bulan = tglIni.substring(0, 7);
+    statusHariIni = { masuk: null, pulang: null };
     apiGet({ action: 'riwayat', id_karyawan: sesi.id_karyawan, bulan: bulan })
       .then(function (data) {
         if (!data.ok) return;
-        var tglIni = tanggalISO(hariIni);
-        var recHariIni = data.records.find(function (r) {
-          return r.tanggal === tglIni && r.tipe_absen === 'MASUK';
+        data.records.forEach(function (r) {
+          if (r.tanggal !== tglIni) return;
+          if (r.tipe_absen === 'MASUK') statusHariIni.masuk = r.waktu;
+          if (r.tipe_absen === 'PULANG') statusHariIni.pulang = r.waktu;
         });
-        if (recHariIni) {
-          setTombolAbsen(true, recHariIni.waktu);
-        }
+        perbaruiTombolAbsen();
       })
       .catch(function () {
-        // gagal cek bukan masalah fatal — backend tetap menolak absen ganda
+        // gagal cek bukan masalah fatal — backend tetap menolak absen ganda,
+        // tombol tetap tampil default "ABSEN MASUK" sampai berhasil sinkron
       });
   }
 
@@ -350,6 +371,8 @@
   var intervalJamKonfirmasi = null;
 
   function bukaKonfirmasi() {
+    $('judul-konfirmasi').textContent =
+      tipeAbsenAktif === 'MASUK' ? 'Absen masuk sekarang?' : 'Absen pulang sekarang?';
     var perbaruiJam = function () {
       var now = new Date();
       $('jam-konfirmasi').textContent =
@@ -405,13 +428,14 @@
   });
 
   function kirimAbsen(sesi, lat, lng) {
+    var tipe = tipeAbsenAktif; // dikunci di awal request, tidak berubah di tengah jalan
     tampilkanOverlay('Mengirim absen...');
     apiPost({
       action: 'absen',
       id_karyawan: sesi.id_karyawan,
       lat: lat,
       lng: lng,
-      tipe_absen: 'MASUK'
+      tipe_absen: tipe
     })
       .then(function (data) {
         sembunyikanOverlay();
@@ -420,9 +444,13 @@
           $('status-absen').textContent = data.error || 'Gagal. Coba lagi.';
           return;
         }
-        setTombolAbsen(true, data.waktu);
+
+        if (tipe === 'MASUK') statusHariIni.masuk = data.waktu;
+        if (tipe === 'PULANG') statusHariIni.pulang = data.waktu;
+
         if (data.sudah_absen) {
-          // sudah tercatat sebelumnya — cukup tampilkan status, tanpa layar sukses
+          // sudah tercatat sebelumnya — cukup refresh tombol, tanpa layar sukses
+          perbaruiTombolAbsen();
           return;
         }
 
@@ -431,10 +459,11 @@
         simpanKeCacheRiwayat(sesi.id_karyawan, {
           tanggal: data.tanggal,
           waktu: data.waktu,
-          tipe_absen: 'MASUK',
+          tipe_absen: tipe,
           status_lokasi: data.status_lokasi
         });
 
+        $('judul-sukses').textContent = tipe === 'MASUK' ? 'Absen Masuk Berhasil' : 'Absen Pulang Berhasil';
         $('tanggal-sukses').textContent = formatTanggalIndonesia(new Date());
         $('jam-sukses').textContent = jamPendek(data.waktu);
         tampilkanLayar('layar-sukses');
@@ -447,6 +476,7 @@
   }
 
   $('btn-sukses-ok').addEventListener('click', function () {
+    perbaruiTombolAbsen(); // tombol sekarang mencerminkan status terbaru (mis. siap absen pulang)
     tampilkanLayar('layar-absen');
     $('nav-bawah').classList.remove('tersembunyi');
   });

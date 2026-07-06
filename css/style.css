@@ -333,15 +333,6 @@ h1 {
   padding: 0 12px;
 }
 
-.btn-absen-pulang {
-  width: min(78vw, 320px);
-  padding: 18px;
-  font-size: 20px;
-  font-weight: 800;
-  border-radius: var(--radius);
-  background: #e5e7eb;
-  color: #9ca3af;
-}
 
 /* ============ MODAL KONFIRMASI ============ */
 

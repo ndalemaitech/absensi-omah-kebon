@@ -6,6 +6,8 @@
  *   GET  ?action=getKaryawan                 → daftar karyawan aktif untuk dropdown
  *   POST action=login   {id_karyawan, pin, buat_baru}  → verifikasi PIN / set PIN baru
  *   POST action=absen   {id_karyawan, lat, lng, tipe_absen} → catat absen
+ *        tipe_absen: "MASUK" atau "PULANG". PULANG ditolak kalau belum
+ *        ada MASUK di hari yang sama (lihat handleAbsen).
  *   GET  ?action=riwayat&id_karyawan=..&bulan=YYYY-MM → data absen 1 bulan
  *
  * Script ini HARUS bound ke Google Sheet-nya (dibuat lewat menu
@@ -129,12 +131,17 @@ function hashPin(idKaryawan, pin) {
 
 // ===================== ENDPOINT: absen =====================
 
+var TIPE_ABSEN_VALID = ['MASUK', 'PULANG'];
+
 function handleAbsen(body) {
   var id = String(body.id_karyawan || '').trim();
   var lat = parseFloat(body.lat);
   var lng = parseFloat(body.lng);
   var tipe = String(body.tipe_absen || 'MASUK').trim().toUpperCase();
   if (!id) return { ok: false, error: 'id_karyawan wajib diisi.' };
+  if (TIPE_ABSEN_VALID.indexOf(tipe) === -1) {
+    return { ok: false, error: 'tipe_absen tidak dikenal: ' + tipe };
+  }
   if (isNaN(lat) || isNaN(lng)) {
     return { ok: false, error: 'Lokasi GPS tidak terbaca. Coba lagi.' };
   }
@@ -153,14 +160,25 @@ function handleAbsen(body) {
     var tanggal = Utilities.formatDate(now, TIMEZONE, 'yyyy-MM-dd');
     var waktu = Utilities.formatDate(now, TIMEZONE, 'HH:mm:ss');
 
+    // Absen pulang cuma masuk akal kalau sudah ada absen masuk hari itu —
+    // tanpa ini, karyawan bisa "pulang" tanpa pernah "masuk", yang
+    // membingungkan buat dibaca Mas Abim dari Sheet nantinya.
+    if (tipe === 'PULANG') {
+      var sudahMasuk = cariAbsenHariIni(id, tanggal, 'MASUK');
+      if (!sudahMasuk) {
+        return { ok: false, error: 'Anda belum absen masuk hari ini. Absen masuk dulu.' };
+      }
+    }
+
     var sudah = cariAbsenHariIni(id, tanggal, tipe);
     if (sudah) {
       return {
         ok: true,
         sudah_absen: true,
+        tipe_absen: tipe,
         tanggal: tanggal,
         waktu: sudah.waktu,
-        pesan: 'Sudah absen hari ini jam ' + sudah.waktu.substring(0, 5)
+        pesan: 'Sudah absen ' + (tipe === 'MASUK' ? 'masuk' : 'pulang') + ' hari ini jam ' + sudah.waktu.substring(0, 5)
       };
     }
 
@@ -189,6 +207,7 @@ function handleAbsen(body) {
     return {
       ok: true,
       sudah_absen: false,
+      tipe_absen: tipe,
       tanggal: tanggal,
       waktu: waktu,
       jarak_dari_kantor_m: jarak,
