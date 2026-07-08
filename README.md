@@ -46,13 +46,14 @@ Setiap push ke `main` otomatis ter-deploy (tunggu ± 1 menit). Kalau ada perubah
 ## Alur Pakai (untuk testing)
 
 1. Buka URL app di HP → pilih nama → buat PIN 4 digit (2x) → masuk layar absen.
-2. Tekan tombol besar (awalnya **ABSEN MASUK**) → izinkan lokasi → muncul layar sukses dengan tanggal, jam, dan info lokasi tercatat.
-3. Setelah SELESAI, tombol yang SAMA otomatis berubah jadi **ABSEN PULANG** (bukan tombol terpisah) — status di bawahnya menampilkan jam masuk. Tekan lagi untuk absen pulang.
-4. Setelah masuk & pulang lengkap, tombol nonaktif dan menampilkan "SUDAH LENGKAP" beserta jam masuk & pulang, sampai hari berikutnya (reset otomatis per hari).
-5. Absen pulang tidak bisa dilakukan tanpa absen masuk di hari yang sama — backend akan menolak dengan pesan "Anda belum absen masuk hari ini."
-6. Cek tab `Absensi` di Sheet: baris baru dengan koordinat, jarak (meter), `status_lokasi`, dan `tipe_absen` (MASUK/PULANG).
-7. Tab **Riwayat** di app: tanggal hari ini jadi hijau di kalender segera setelah absen (instan, tidak perlu nunggu network).
-8. Chrome Android akan menawarkan **"Tambahkan ke Layar Utama"** (atau lewat menu ⋮).
+2. Layar absen menampilkan **4 tombol terpisah**: MASUK (hijau), PULANG (kuning/amber), CUTI (biru), OFF (ungu). Warna ini konsisten di modal konfirmasi, layar sukses, dan kalender.
+3. Tekan **MASUK** → izinkan lokasi → muncul layar sukses (berwarna hijau) dengan tanggal, jam, dan info lokasi tercatat. Setelah itu tombol PULANG otomatis aktif, tombol CUTI & OFF otomatis nonaktif (satu hari cuma boleh satu "jalur": hadir kerja ATAU cuti/off, tidak bisa dua-duanya).
+4. Tekan **PULANG** → hari itu jadi "lengkap" (MASUK+PULANG). Tombol MASUK & PULANG lalu terkunci (ada tanda centang), sampai hari berikutnya (reset otomatis per hari).
+5. **CUTI** dan **OFF** tidak butuh lokasi GPS sama sekali — tekan tombolnya, konfirmasi, langsung tercatat tanpa app meminta izin lokasi. CUTI dan OFF juga saling eksklusif (kalau sudah CUTI, tombol OFF ikut terkunci hari itu, dan sebaliknya).
+6. Absen pulang tidak bisa dilakukan tanpa absen masuk di hari yang sama — backend akan menolak dengan pesan "Anda belum absen masuk hari ini." Tombol PULANG juga otomatis tampil terkunci di UI sebelum MASUK tercatat, supaya karyawan tidak perlu menekan dulu baru tahu ditolak.
+7. Cek tab `Absensi` di Sheet: baris baru dengan koordinat, jarak (meter), `status_lokasi`, dan `tipe_absen` (MASUK/PULANG/CUTI/OFF) — untuk CUTI/OFF kolom koordinat & jarak kosong dan `status_lokasi` = `TIDAK_BERLAKU`.
+8. Tab **Riwayat** di app: tanggal hari ini langsung berwarna sesuai tipe absen (hijau/kuning/biru/ungu) segera setelah absen (instan, tidak perlu nunggu network). Kalau hari itu MASUK+PULANG lengkap, warnanya jadi kuning (PULANG) menandakan hari itu selesai.
+9. Chrome Android akan menawarkan **"Tambahkan ke Layar Utama"** (atau lewat menu ⋮).
 
 ## SOP Admin: Reset Akses (HP rusak / hilang / ketinggalan)
 

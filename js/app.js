@@ -13,8 +13,27 @@
   var modeBuatPin = false;
   var bulanKalender = new Date(); // bulan yang sedang ditampilkan
   var riwayatCache = {}; // { 'YYYY-MM': [records] } — supaya kalender tampil instan, tanpa nunggu network
-  var statusHariIni = { masuk: null, pulang: null }; // waktu (string) atau null
-  var tipeAbsenAktif = 'MASUK'; // tipe yang akan dikirim kalau tombol besar ditekan sekarang
+  var statusHariIni = { masuk: null, pulang: null, cuti: null, off: null }; // waktu (string) atau null
+  var tipeAbsenAktif = 'MASUK'; // tipe yang terakhir ditekan, dikunci saat konfirmasi/kirim berlangsung
+
+  // ---- Peta terpusat 4 tipe absen. Kalau nanti nambah tipe baru, cukup
+  // tambah entri di sini + elemen tombolnya di index.html + variabel warna
+  // di css/style.css — logika di bawah sudah generik, tidak hardcode 2 tipe. ----
+  var ID_TOMBOL = { MASUK: 'btn-absen-masuk', PULANG: 'btn-absen-pulang', CUTI: 'btn-absen-cuti', OFF: 'btn-absen-off' };
+  var KUNCI_STATUS = { MASUK: 'masuk', PULANG: 'pulang', CUTI: 'cuti', OFF: 'off' };
+  var BUTUH_LOKASI = { MASUK: true, PULANG: true, CUTI: false, OFF: false };
+  var JUDUL_KONFIRMASI = {
+    MASUK: 'Absen masuk sekarang?',
+    PULANG: 'Absen pulang sekarang?',
+    CUTI: 'Ajukan cuti hari ini?',
+    OFF: 'Tandai off hari ini?'
+  };
+  var JUDUL_SUKSES = {
+    MASUK: 'Absen Masuk Berhasil',
+    PULANG: 'Absen Pulang Berhasil',
+    CUTI: 'Cuti Tercatat',
+    OFF: 'Off Tercatat'
+  };
 
   // ============ ELEMEN ============
   var $ = function (id) {
@@ -315,41 +334,44 @@
     cekAbsenHariIni(sesi);
   }
 
-  // Gambar ulang tombol besar sesuai statusHariIni. Satu tombol, tiga
-  // kemungkinan tampilan — bukan dua tombol terpisah, supaya tetap
-  // sesederhana mungkin.
+  // Gambar ulang KEEMPAT tombol sesuai statusHariIni. Aturan saling-silang
+  // ini sengaja dicerminkan dari validasi di backend (Code.gs handleAbsen)
+  // supaya karyawan tidak perlu menekan tombol dulu baru tahu ditolak —
+  // tombol yang memang akan ditolak server langsung tampil nonaktif/abu-abu:
+  //  - MASUK/PULANG (kelompok "hadir") dan CUTI/OFF (kelompok "tidak hadir")
+  //    saling eksklusif per hari.
+  //  - PULANG baru bisa ditekan setelah MASUK tercatat.
+  //  - CUTI dan OFF juga saling eksklusif satu sama lain.
+  //  - Tipe yang sudah tercatat hari ini ditandai selesai (centang) & dikunci.
   function perbaruiTombolAbsen() {
-    var btn = $('btn-absen');
-    var ikonMasuk = $('ikon-absen-masuk');
-    var ikonPulang = $('ikon-absen-pulang');
+    var s = statusHariIni;
+    var kelompokHadirAktif = !!(s.masuk || s.pulang);
+    var kelompokTidakHadirAktif = !!(s.cuti || s.off);
 
-    if (!statusHariIni.masuk) {
-      tipeAbsenAktif = 'MASUK';
-      btn.disabled = false;
-      $('btn-absen-teks').innerHTML = 'ABSEN<br />MASUK';
-      $('status-absen').textContent = '';
-      ikonMasuk.classList.remove('tersembunyi');
-      ikonPulang.classList.add('tersembunyi');
-    } else if (!statusHariIni.pulang) {
-      tipeAbsenAktif = 'PULANG';
-      btn.disabled = false;
-      $('btn-absen-teks').innerHTML = 'ABSEN<br />PULANG';
-      $('status-absen').textContent = 'Sudah absen masuk jam ' + jamPendek(statusHariIni.masuk);
-      ikonMasuk.classList.add('tersembunyi');
-      ikonPulang.classList.remove('tersembunyi');
-    } else {
-      btn.disabled = true;
-      $('btn-absen-teks').innerHTML = 'SUDAH<br />LENGKAP';
-      $('status-absen').textContent =
-        'Masuk ' + jamPendek(statusHariIni.masuk) + ' · Pulang ' + jamPendek(statusHariIni.pulang);
-    }
+    aturTombol('MASUK', !!s.masuk, !!s.masuk || kelompokTidakHadirAktif);
+    aturTombol('PULANG', !!s.pulang, !!s.pulang || !s.masuk || kelompokTidakHadirAktif);
+    aturTombol('CUTI', !!s.cuti, !!s.cuti || !!s.off || kelompokHadirAktif);
+    aturTombol('OFF', !!s.off, !!s.off || !!s.cuti || kelompokHadirAktif);
+
+    var ringkasan = [];
+    if (s.masuk) ringkasan.push('Masuk ' + jamPendek(s.masuk));
+    if (s.pulang) ringkasan.push('Pulang ' + jamPendek(s.pulang));
+    if (s.cuti) ringkasan.push('Cuti tercatat jam ' + jamPendek(s.cuti));
+    if (s.off) ringkasan.push('Off tercatat jam ' + jamPendek(s.off));
+    $('status-absen').textContent = ringkasan.join(' · ');
+  }
+
+  function aturTombol(tipe, selesai, disabled) {
+    var btn = $(ID_TOMBOL[tipe]);
+    btn.disabled = disabled;
+    btn.classList.toggle('selesai', selesai);
   }
 
   function cekAbsenHariIni(sesi) {
     var hariIni = new Date();
     var tglIni = tanggalISO(hariIni);
     var bulan = tglIni.substring(0, 7);
-    statusHariIni = { masuk: null, pulang: null };
+    statusHariIni = { masuk: null, pulang: null, cuti: null, off: null };
     apiGet({ action: 'riwayat', id_karyawan: sesi.id_karyawan, bulan: bulan })
       .then(function (data) {
         if (!data.ok) return;
@@ -357,12 +379,14 @@
           if (r.tanggal !== tglIni) return;
           if (r.tipe_absen === 'MASUK') statusHariIni.masuk = r.waktu;
           if (r.tipe_absen === 'PULANG') statusHariIni.pulang = r.waktu;
+          if (r.tipe_absen === 'CUTI') statusHariIni.cuti = r.waktu;
+          if (r.tipe_absen === 'OFF') statusHariIni.off = r.waktu;
         });
         perbaruiTombolAbsen();
       })
       .catch(function () {
         // gagal cek bukan masalah fatal — backend tetap menolak absen ganda,
-        // tombol tetap tampil default "ABSEN MASUK" sampai berhasil sinkron
+        // tombol tetap tampil kondisi default sampai berhasil sinkron
       });
   }
 
@@ -371,8 +395,9 @@
   var intervalJamKonfirmasi = null;
 
   function bukaKonfirmasi() {
-    $('judul-konfirmasi').textContent =
-      tipeAbsenAktif === 'MASUK' ? 'Absen masuk sekarang?' : 'Absen pulang sekarang?';
+    var tipe = tipeAbsenAktif;
+    $('judul-konfirmasi').textContent = JUDUL_KONFIRMASI[tipe];
+    $('kartu-konfirmasi').className = 'kartu-konfirmasi kartu-konfirmasi-' + tipe.toLowerCase();
     var perbaruiJam = function () {
       var now = new Date();
       $('jam-konfirmasi').textContent =
@@ -388,15 +413,21 @@
     $('modal-konfirmasi').classList.add('tersembunyi');
   }
 
-  $('btn-absen').addEventListener('click', function () {
-    var sesi = getSesi();
-    if (!sesi) return mulaiSetup();
+  // Satu listener klik per tombol tipe absen — masing-masing menyimpan
+  // tipenya sendiri ke tipeAbsenAktif lalu membuka modal konfirmasi yang sama.
+  Object.keys(ID_TOMBOL).forEach(function (tipe) {
+    $(ID_TOMBOL[tipe]).addEventListener('click', function () {
+      if (this.disabled) return;
+      var sesi = getSesi();
+      if (!sesi) return mulaiSetup();
 
-    if (!navigator.geolocation) {
-      $('status-absen').textContent = 'HP ini tidak mendukung GPS.';
-      return;
-    }
-    bukaKonfirmasi();
+      if (BUTUH_LOKASI[tipe] && !navigator.geolocation) {
+        $('status-absen').textContent = 'HP ini tidak mendukung GPS.';
+        return;
+      }
+      tipeAbsenAktif = tipe;
+      bukaKonfirmasi();
+    });
   });
 
   $('btn-konfirmasi-batal').addEventListener('click', tutupKonfirmasi);
@@ -406,16 +437,24 @@
     var sesi = getSesi();
     if (!sesi) return mulaiSetup();
 
-    $('btn-absen').disabled = true;
-    tampilkanOverlay('Mencari lokasi...');
+    var tipe = tipeAbsenAktif;
+    $(ID_TOMBOL[tipe]).disabled = true; // cegah dobel-tap selama proses berjalan
 
+    if (!BUTUH_LOKASI[tipe]) {
+      // CUTI/OFF tidak butuh lokasi — langsung kirim tanpa minta GPS.
+      tampilkanOverlay('Mengirim...');
+      kirimAbsen(sesi, '', '');
+      return;
+    }
+
+    tampilkanOverlay('Mencari lokasi...');
     navigator.geolocation.getCurrentPosition(
       function (pos) {
         kirimAbsen(sesi, pos.coords.latitude, pos.coords.longitude);
       },
       function (err) {
         sembunyikanOverlay();
-        $('btn-absen').disabled = false;
+        perbaruiTombolAbsen(); // kembalikan status tombol sesuai kondisi asli
         if (err.code === err.PERMISSION_DENIED) {
           $('status-absen').textContent =
             'Izin lokasi ditolak. Nyalakan izin lokasi untuk aplikasi ini, lalu coba lagi.';
@@ -440,13 +479,12 @@
       .then(function (data) {
         sembunyikanOverlay();
         if (!data.ok) {
-          $('btn-absen').disabled = false;
+          perbaruiTombolAbsen(); // kembalikan tombol ke kondisi sesuai statusHariIni asli
           $('status-absen').textContent = data.error || 'Gagal. Coba lagi.';
           return;
         }
 
-        if (tipe === 'MASUK') statusHariIni.masuk = data.waktu;
-        if (tipe === 'PULANG') statusHariIni.pulang = data.waktu;
+        statusHariIni[KUNCI_STATUS[tipe]] = data.waktu;
 
         if (data.sudah_absen) {
           // sudah tercatat sebelumnya — cukup refresh tombol, tanpa layar sukses
@@ -455,7 +493,7 @@
         }
 
         // Simpan langsung ke cache kalender bulan ini — supaya begitu user
-        // pindah ke Riwayat, tanggal hari ini SUDAH hijau tanpa nunggu fetch
+        // pindah ke Riwayat, tanggal hari ini SUDAH berwarna tanpa nunggu fetch
         simpanKeCacheRiwayat(sesi.id_karyawan, {
           tanggal: data.tanggal,
           waktu: data.waktu,
@@ -463,14 +501,17 @@
           status_lokasi: data.status_lokasi
         });
 
-        $('judul-sukses').textContent = tipe === 'MASUK' ? 'Absen Masuk Berhasil' : 'Absen Pulang Berhasil';
+        $('judul-sukses').textContent = JUDUL_SUKSES[tipe];
         $('tanggal-sukses').textContent = formatTanggalIndonesia(new Date());
         $('jam-sukses').textContent = jamPendek(data.waktu);
+        // Info lokasi hanya relevan untuk MASUK/PULANG (CUTI/OFF tidak merekam GPS)
+        $('lokasi-sukses').classList.toggle('tersembunyi', !BUTUH_LOKASI[tipe]);
+        $('layar-sukses').className = 'layar layar-sukses layar-sukses-' + tipe.toLowerCase();
         tampilkanLayar('layar-sukses');
       })
       .catch(function () {
         sembunyikanOverlay();
-        $('btn-absen').disabled = false;
+        perbaruiTombolAbsen();
         $('status-absen').textContent = pesanKoneksi();
       });
   }
@@ -558,14 +599,33 @@
     return (n < 10 ? '0' : '') + n;
   }
 
-  // Tandai tanggal "hadir" langsung di elemen grid kalender yang sedang
-  // tampil (kalau bulan yang cocok sedang dibuka) — dipakai baik oleh cache
-  // lokal maupun oleh data segar dari server, supaya keduanya konsisten.
+  // Urutan prioritas warna kalau satu hari punya lebih dari satu record.
+  // CUTI/OFF tak pernah bercampur dengan MASUK/PULANG di hari yang sama
+  // (dijamin saling eksklusif oleh backend) — satu-satunya kombinasi nyata
+  // adalah MASUK+PULANG di hari yang sama, dan PULANG "menang" karena
+  // artinya hari itu sudah lengkap/selesai.
+  var PRIORITAS_TIPE = ['CUTI', 'OFF', 'PULANG', 'MASUK'];
+  var KELAS_HADIR_SEMUA = ['hadir-masuk', 'hadir-pulang', 'hadir-cuti', 'hadir-off'];
+
+  // Tandai tanggal di grid kalender dengan warna sesuai tipe absen dominan
+  // hari itu — dipakai baik oleh cache lokal maupun data segar dari server,
+  // supaya keduanya konsisten.
   function tandaiHadirDiGrid(records) {
     var grid = $('kalender-grid');
+    var perTanggal = {};
     records.forEach(function (r) {
-      var sel = grid.querySelector('[data-tanggal="' + r.tanggal + '"]');
-      if (sel) sel.classList.add('hadir');
+      if (!perTanggal[r.tanggal]) perTanggal[r.tanggal] = {};
+      perTanggal[r.tanggal][r.tipe_absen] = true;
+    });
+    Object.keys(perTanggal).forEach(function (tgl) {
+      var sel = grid.querySelector('[data-tanggal="' + tgl + '"]');
+      if (!sel) return;
+      var tipeDominan = PRIORITAS_TIPE.filter(function (t) {
+        return perTanggal[tgl][t];
+      })[0];
+      if (!tipeDominan) return;
+      sel.classList.remove.apply(sel.classList, KELAS_HADIR_SEMUA);
+      sel.classList.add('hadir-' + tipeDominan.toLowerCase());
     });
   }
 

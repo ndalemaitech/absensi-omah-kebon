@@ -6,8 +6,13 @@
  *   GET  ?action=getKaryawan                 → daftar karyawan aktif untuk dropdown
  *   POST action=login   {id_karyawan, pin, buat_baru}  → verifikasi PIN / set PIN baru
  *   POST action=absen   {id_karyawan, lat, lng, tipe_absen} → catat absen
- *        tipe_absen: "MASUK" atau "PULANG". PULANG ditolak kalau belum
- *        ada MASUK di hari yang sama (lihat handleAbsen).
+ *        tipe_absen: "MASUK", "PULANG", "CUTI", atau "OFF".
+ *        - MASUK/PULANG wajib sertakan lat/lng (perlu verifikasi lokasi).
+ *        - CUTI/OFF tidak butuh lat/lng (karyawan tidak wajib di lokasi).
+ *        - PULANG ditolak kalau belum ada MASUK di hari yang sama.
+ *        - MASUK/PULANG dan CUTI/OFF saling eksklusif per hari — sekali
+ *          salah satu tercatat, jenis dari "kelompok lain" ditolak
+ *          (lihat handleAbsen).
  *   GET  ?action=riwayat&id_karyawan=..&bulan=YYYY-MM → data absen 1 bulan
  *
  * Script ini HARUS bound ke Google Sheet-nya (dibuat lewat menu
@@ -131,20 +136,30 @@ function hashPin(idKaryawan, pin) {
 
 // ===================== ENDPOINT: absen =====================
 
-var TIPE_ABSEN_VALID = ['MASUK', 'PULANG'];
+var TIPE_ABSEN_VALID = ['MASUK', 'PULANG', 'CUTI', 'OFF'];
+// Dua kelompok yang saling eksklusif per hari: kalau salah satu tipe di
+// suatu kelompok sudah tercatat hari ini, tipe dari kelompok LAIN ditolak.
+// (Tidak masuk akal karyawan "absen masuk" di hari yang sama dia "cuti".)
+var KELOMPOK_HADIR = ['MASUK', 'PULANG'];
+var KELOMPOK_TIDAK_HADIR = ['CUTI', 'OFF'];
+var LABEL_TIPE = { MASUK: 'masuk', PULANG: 'pulang', CUTI: 'cuti', OFF: 'off' };
 
 function handleAbsen(body) {
   var id = String(body.id_karyawan || '').trim();
-  var lat = parseFloat(body.lat);
-  var lng = parseFloat(body.lng);
   var tipe = String(body.tipe_absen || 'MASUK').trim().toUpperCase();
   if (!id) return { ok: false, error: 'id_karyawan wajib diisi.' };
   if (TIPE_ABSEN_VALID.indexOf(tipe) === -1) {
     return { ok: false, error: 'tipe_absen tidak dikenal: ' + tipe };
   }
-  if (isNaN(lat) || isNaN(lng)) {
+
+  var butuhLokasi = KELOMPOK_HADIR.indexOf(tipe) !== -1;
+  var lat = butuhLokasi ? parseFloat(body.lat) : (body.lat === undefined || body.lat === null ? null : parseFloat(body.lat));
+  var lng = butuhLokasi ? parseFloat(body.lng) : (body.lng === undefined || body.lng === null ? null : parseFloat(body.lng));
+  if (butuhLokasi && (isNaN(lat) || isNaN(lng))) {
     return { ok: false, error: 'Lokasi GPS tidak terbaca. Coba lagi.' };
   }
+  if (!butuhLokasi && (isNaN(lat) || lat === null)) lat = '';
+  if (!butuhLokasi && (isNaN(lng) || lng === null)) lng = '';
 
   var karyawan = findKaryawan(id);
   if (!karyawan) return { ok: false, error: 'Karyawan tidak ditemukan.' };
@@ -170,6 +185,27 @@ function handleAbsen(body) {
       }
     }
 
+    // Guard saling-eksklusif: cek apakah kelompok "lawan" sudah tercatat
+    // hari ini. MASUK/PULANG lawannya CUTI/OFF, dan sebaliknya.
+    var kelompokLawan = KELOMPOK_HADIR.indexOf(tipe) !== -1 ? KELOMPOK_TIDAK_HADIR : KELOMPOK_HADIR;
+    for (var i = 0; i < kelompokLawan.length; i++) {
+      var bentrok = cariAbsenHariIni(id, tanggal, kelompokLawan[i]);
+      if (bentrok) {
+        return {
+          ok: false,
+          error: 'Hari ini sudah ditandai ' + LABEL_TIPE[kelompokLawan[i]].toUpperCase() + ', tidak bisa ' + LABEL_TIPE[tipe] + '.'
+        };
+      }
+    }
+    // Cuti dan Off juga saling eksklusif satu sama lain
+    if (KELOMPOK_TIDAK_HADIR.indexOf(tipe) !== -1) {
+      var lawanSatuGrup = tipe === 'CUTI' ? 'OFF' : 'CUTI';
+      var adaLawan = cariAbsenHariIni(id, tanggal, lawanSatuGrup);
+      if (adaLawan) {
+        return { ok: false, error: 'Hari ini sudah ditandai ' + LABEL_TIPE[lawanSatuGrup].toUpperCase() + '.' };
+      }
+    }
+
     var sudah = cariAbsenHariIni(id, tanggal, tipe);
     if (sudah) {
       return {
@@ -178,16 +214,17 @@ function handleAbsen(body) {
         tipe_absen: tipe,
         tanggal: tanggal,
         waktu: sudah.waktu,
-        pesan: 'Sudah absen ' + (tipe === 'MASUK' ? 'masuk' : 'pulang') + ' hari ini jam ' + sudah.waktu.substring(0, 5)
+        pesan: 'Sudah tercatat ' + LABEL_TIPE[tipe] + ' hari ini jam ' + sudah.waktu.substring(0, 5)
       };
     }
 
-    var config = getConfig();
-    var jarak = Math.round(
-      haversineMeter(lat, lng, config.lokasi_kantor_lat, config.lokasi_kantor_lng)
-    );
-    var statusLokasi =
-      jarak <= config.radius_toleransi_m ? 'DALAM_RADIUS' : 'DILUAR_RADIUS';
+    var jarak = '';
+    var statusLokasi = 'TIDAK_BERLAKU';
+    if (butuhLokasi) {
+      var config = getConfig();
+      jarak = Math.round(haversineMeter(lat, lng, config.lokasi_kantor_lat, config.lokasi_kantor_lng));
+      statusLokasi = jarak <= config.radius_toleransi_m ? 'DALAM_RADIUS' : 'DILUAR_RADIUS';
+    }
 
     var idAbsen = 'ABS-' + Utilities.formatDate(now, TIMEZONE, 'yyyyMMdd-HHmmss') + '-' + id;
     getSheet(SHEET_ABSENSI).appendRow([

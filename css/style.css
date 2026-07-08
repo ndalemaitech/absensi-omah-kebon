@@ -12,6 +12,19 @@
   --merah: #dc2626;
   --abu-border: #d4d4d8;
   --radius: 16px;
+
+  /* Identitas warna per tipe absen — dipakai konsisten di tombol absen,
+     modal konfirmasi, layar sukses, dan kalender. Sengaja dikumpulkan di
+     satu tempat supaya kalau nanti ada tipe absen baru ("dll"), tinggal
+     tambah 2 variabel warna di sini + 1 blok kecil di tiap komponen. */
+  --warna-masuk: #059669;      /* hijau — sama dengan --hijau, dipertahankan agar konsisten dg elemen lain */
+  --warna-masuk-tua: #047857;
+  --warna-pulang: #b45309;     /* kuning/amber tua — kontras cukup untuk teks putih */
+  --warna-pulang-tua: #92400e;
+  --warna-cuti: #2563eb;       /* biru */
+  --warna-cuti-tua: #1d4ed8;
+  --warna-off: #7c3aed;        /* ungu */
+  --warna-off-tua: #6d28d9;
 }
 
 * {
@@ -289,54 +302,103 @@ h1 {
   gap: 24px;
 }
 
-.btn-absen {
-  width: min(78vw, 320px);
+.status-absen {
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--hijau-gelap);
+  min-height: 26px;
+  padding: 0 12px;
+}
+
+/* Grid 2x2 — 4 tombol terpisah, satu per tipe absen. Tiap tombol punya
+   warna latar sendiri (lihat .tombol-masuk dkk) yang sama persis dengan
+   warna dipakai di modal konfirmasi, layar sukses, dan kalender. */
+.grid-tombol-absen {
+  width: 100%;
+  max-width: 380px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.tombol-absen {
+  position: relative;
   aspect-ratio: 1;
-  border-radius: 50%;
-  background: var(--hijau);
+  border-radius: 20px;
   color: var(--putih);
-  font-size: 34px;
-  font-weight: 900;
-  line-height: 1.15;
-  letter-spacing: 1px;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
-  box-shadow: 0 10px 30px rgba(5, 150, 105, 0.35);
-  transition: transform 0.15s, background-color 0.2s, box-shadow 0.2s;
+  gap: 10px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+  transition: transform 0.15s, background-color 0.2s, opacity 0.2s, box-shadow 0.2s;
 }
 
-.btn-absen:active {
-  transform: scale(0.97);
-  background: var(--hijau-tua);
+.tombol-absen:active {
+  transform: scale(0.96);
 }
 
-.btn-absen:disabled {
-  background: #9ca3af;
+.tombol-absen:disabled {
+  opacity: 0.42;
   box-shadow: none;
-  color: var(--putih);
+  transform: none;
 }
 
-.ikon-absen {
-  width: 64px;
-  height: 64px;
+.ikon-tombol {
+  width: 38px;
+  height: 38px;
 }
 
-.status-absen {
-  font-size: 20px;
-  font-weight: 700;
-  text-align: center;
-  color: var(--hijau-gelap);
-  min-height: 30px;
-  padding: 0 12px;
+/* Lencana centang di pojok kanan atas — muncul kalau tipe itu sudah
+   tercatat hari ini (lihat kelas .selesai yang ditambahkan lewat JS). */
+.cek-tombol {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--putih);
+  display: none;
+  align-items: center;
+  justify-content: center;
 }
+
+.cek-tombol svg {
+  width: 15px;
+  height: 15px;
+}
+
+.tombol-absen.selesai .cek-tombol {
+  display: flex;
+}
+
+.tombol-masuk { background: var(--warna-masuk); }
+.tombol-masuk:active { background: var(--warna-masuk-tua); }
+.tombol-masuk .cek-tombol svg { color: var(--warna-masuk); }
+
+.tombol-pulang { background: var(--warna-pulang); }
+.tombol-pulang:active { background: var(--warna-pulang-tua); }
+.tombol-pulang .cek-tombol svg { color: var(--warna-pulang); }
+
+.tombol-cuti { background: var(--warna-cuti); }
+.tombol-cuti:active { background: var(--warna-cuti-tua); }
+.tombol-cuti .cek-tombol svg { color: var(--warna-cuti); }
+
+.tombol-off { background: var(--warna-off); }
+.tombol-off:active { background: var(--warna-off-tua); }
+.tombol-off .cek-tombol svg { color: var(--warna-off); }
 
 
 /* ============ MODAL KONFIRMASI ============ */
 
 .kartu-konfirmasi {
+  --warna-konfirmasi: var(--warna-masuk);
   background: var(--putih);
   border-radius: 24px;
   padding: 28px 24px;
@@ -349,16 +411,20 @@ h1 {
   animation: muncul 0.25s ease-out;
 }
 
+.kartu-konfirmasi-pulang { --warna-konfirmasi: var(--warna-pulang); }
+.kartu-konfirmasi-cuti { --warna-konfirmasi: var(--warna-cuti); }
+.kartu-konfirmasi-off { --warna-konfirmasi: var(--warna-off); }
+
 .judul-konfirmasi {
   font-size: 24px;
   font-weight: 800;
-  color: var(--hijau-gelap);
+  color: var(--warna-konfirmasi);
 }
 
 .jam-konfirmasi {
   font-size: 48px;
   font-weight: 900;
-  color: var(--hijau);
+  color: var(--warna-konfirmasi);
   letter-spacing: 2px;
   font-variant-numeric: tabular-nums;
 }
@@ -377,17 +443,22 @@ h1 {
 /* ============ LAYAR SUKSES ============ */
 
 .layar-sukses {
-  background: var(--hijau);
+  --warna-sukses: var(--warna-masuk);
+  background: var(--warna-sukses);
   color: var(--putih);
   padding-bottom: 24px;
 }
+
+.layar-sukses-pulang { --warna-sukses: var(--warna-pulang); }
+.layar-sukses-cuti { --warna-sukses: var(--warna-cuti); }
+.layar-sukses-off { --warna-sukses: var(--warna-off); }
 
 .lingkaran-sukses {
   width: 140px;
   height: 140px;
   border-radius: 50%;
   background: var(--putih);
-  color: var(--hijau);
+  color: var(--warna-sukses);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -466,7 +537,7 @@ h1 {
 
 .layar-sukses .btn-utama {
   background: var(--putih);
-  color: var(--hijau-gelap);
+  color: var(--warna-sukses);
   max-width: 320px;
 }
 
@@ -548,8 +619,32 @@ h1 {
   background: transparent;
 }
 
-.sel-tanggal.hadir {
-  background: var(--hijau);
+/* Satu warna dominan per hari (bukan campuran) — hari kerja tanpa PULANG
+   (masih berjalan) tampil hijau (MASUK), begitu PULANG tercatat warnanya
+   berubah jadi amber (menandakan hari itu SELESAI/lengkap). CUTI dan OFF
+   tidak akan pernah bercampur dengan MASUK/PULANG di hari yang sama
+   (sudah dijamin saling eksklusif oleh backend), jadi tidak perlu logika
+   gabungan warna — satu tipe per sel per hari sudah cukup. */
+.sel-tanggal.hadir-masuk {
+  background: var(--warna-masuk);
+  color: var(--putih);
+  font-weight: 800;
+}
+
+.sel-tanggal.hadir-pulang {
+  background: var(--warna-pulang);
+  color: var(--putih);
+  font-weight: 800;
+}
+
+.sel-tanggal.hadir-cuti {
+  background: var(--warna-cuti);
+  color: var(--putih);
+  font-weight: 800;
+}
+
+.sel-tanggal.hadir-off {
+  background: var(--warna-off);
   color: var(--putih);
   font-weight: 800;
 }
@@ -561,9 +656,11 @@ h1 {
 
 .legenda {
   display: flex;
-  gap: 18px;
+  flex-wrap: wrap;
+  row-gap: 8px;
+  column-gap: 16px;
   justify-content: center;
-  font-size: 15px;
+  font-size: 14px;
   color: var(--teks-redup);
 }
 
@@ -582,10 +679,10 @@ h1 {
   display: inline-block;
 }
 
-.kotak-legenda.hadir {
-  background: var(--hijau);
-  border-color: var(--hijau);
-}
+.kotak-legenda.kotak-masuk { background: var(--warna-masuk); border-color: var(--warna-masuk); }
+.kotak-legenda.kotak-pulang { background: var(--warna-pulang); border-color: var(--warna-pulang); }
+.kotak-legenda.kotak-cuti { background: var(--warna-cuti); border-color: var(--warna-cuti); }
+.kotak-legenda.kotak-off { background: var(--warna-off); border-color: var(--warna-off); }
 
 /* ============ NAV BAWAH ============ */
 

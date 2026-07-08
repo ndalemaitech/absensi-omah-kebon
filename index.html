@@ -75,25 +75,56 @@
     </header>
 
     <div class="area-absen">
-      <!-- Satu tombol yang berubah makna sesuai progres hari ini:
-           belum absen sama sekali → "ABSEN MASUK"
-           sudah masuk, belum pulang → "ABSEN PULANG"
-           sudah dua-duanya → nonaktif, "SUDAH ABSEN LENGKAP"
-           Ini sengaja satu tombol (bukan dua tombol terpisah) supaya tetap
-           sesederhana mungkin buat karyawan paling awam teknologi. -->
-      <button id="btn-absen" class="btn-absen">
-        <svg id="ikon-absen-masuk" class="ikon-absen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M9 11l3 3L22 4" />
-          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-        </svg>
-        <svg id="ikon-absen-pulang" class="ikon-absen tersembunyi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-          <path d="M16 17l5-5-5-5" />
-          <path d="M21 12H9" />
-        </svg>
-        <span id="btn-absen-teks">ABSEN<br />MASUK</span>
-      </button>
+      <!-- 4 tombol terpisah, satu per tipe absen (MASUK/PULANG/CUTI/OFF).
+           Tiap tipe punya identitas warna sendiri yang konsisten di seluruh
+           tempat (tombol ini, modal konfirmasi, layar sukses, dan kalender):
+           MASUK=hijau, PULANG=kuning/amber, CUTI=biru, OFF=ungu. Desain ini
+           sengaja dibuat generik (data-tipe + peta warna terpusat di CSS/JS)
+           supaya gampang ditambah tipe baru nanti tanpa bongkar ulang. -->
       <p id="status-absen" class="status-absen"></p>
+      <div class="grid-tombol-absen">
+        <button id="btn-absen-masuk" class="tombol-absen tombol-masuk" data-tipe="MASUK">
+          <svg class="ikon-tombol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 11l3 3L22 4" />
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+          </svg>
+          <span class="label-tombol">MASUK</span>
+          <span class="cek-tombol" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+          </span>
+        </button>
+        <button id="btn-absen-pulang" class="tombol-absen tombol-pulang" data-tipe="PULANG" disabled>
+          <svg class="ikon-tombol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <path d="M16 17l5-5-5-5" />
+            <path d="M21 12H9" />
+          </svg>
+          <span class="label-tombol">PULANG</span>
+          <span class="cek-tombol" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+          </span>
+        </button>
+        <button id="btn-absen-cuti" class="tombol-absen tombol-cuti" data-tipe="CUTI">
+          <svg class="ikon-tombol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="7" width="18" height="13" rx="2" />
+            <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            <line x1="3" y1="13" x2="21" y2="13" />
+          </svg>
+          <span class="label-tombol">CUTI</span>
+          <span class="cek-tombol" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+          </span>
+        </button>
+        <button id="btn-absen-off" class="tombol-absen tombol-off" data-tipe="OFF">
+          <svg class="ikon-tombol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" />
+          </svg>
+          <span class="label-tombol">OFF</span>
+          <span class="cek-tombol" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+          </span>
+        </button>
+      </div>
     </div>
   </section>
 
@@ -132,7 +163,10 @@
       </div>
       <div id="kalender-grid" class="kalender-grid"></div>
       <div class="legenda">
-        <span class="legenda-item"><span class="kotak-legenda hadir"></span> Ada absen</span>
+        <span class="legenda-item"><span class="kotak-legenda kotak-masuk"></span> Masuk</span>
+        <span class="legenda-item"><span class="kotak-legenda kotak-pulang"></span> Pulang</span>
+        <span class="legenda-item"><span class="kotak-legenda kotak-cuti"></span> Cuti</span>
+        <span class="legenda-item"><span class="kotak-legenda kotak-off"></span> Off</span>
         <span class="legenda-item"><span class="kotak-legenda"></span> Tidak ada catatan</span>
       </div>
       <p id="riwayat-error" class="teks-error" role="alert"></p>
@@ -157,7 +191,7 @@
 
   <!-- Modal konfirmasi sebelum absen dikirim -->
   <div id="modal-konfirmasi" class="overlay tersembunyi" role="dialog" aria-modal="true" aria-labelledby="judul-konfirmasi">
-    <div class="kartu-konfirmasi">
+    <div id="kartu-konfirmasi" class="kartu-konfirmasi kartu-konfirmasi-masuk">
       <p id="judul-konfirmasi" class="judul-konfirmasi">Absen masuk sekarang?</p>
       <p id="jam-konfirmasi" class="jam-konfirmasi" aria-live="polite"></p>
       <button id="btn-konfirmasi-ya" class="btn btn-utama">YA, ABSEN SEKARANG</button>
