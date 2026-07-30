@@ -2,9 +2,14 @@
  * Cache app shell supaya app terbuka cepat & bisa dipasang ke homescreen.
  * Panggilan API (script.google.com) TIDAK pernah di-cache.
  * Naikkan angka VERSI setiap kali ada perubahan file frontend.
+ *
+ * CATATAN (2026-07-30): dashboard admin (/admin/) SENGAJA TIDAK dimasukkan
+ * ke APP_SHELL — dashboard itu dipakai dari desktop/browser biasa (bukan
+ * "Tambahkan ke Layar Utama"), butuh koneksi internet setiap dibuka, jadi
+ * tidak perlu app-shell offline seperti app karyawan ini.
  */
 
-var VERSI = 'absensi-ok-v8';
+var VERSI = 'absensi-ok-v9';
 
 var APP_SHELL = [
   './',

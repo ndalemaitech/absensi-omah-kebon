@@ -75,12 +75,13 @@
     </header>
 
     <div class="area-absen">
-      <!-- 4 tombol terpisah, satu per tipe absen (MASUK/PULANG/CUTI/OFF).
+      <!-- 6 tombol terpisah, satu per tipe absen, dikelompokkan 3 baris:
+           Hadir (Masuk/Pulang), Lembur (Mulai/Selesai Lembur), Izin (Cuti/Off).
            Tiap tipe punya identitas warna sendiri yang konsisten di seluruh
            tempat (tombol ini, modal konfirmasi, layar sukses, dan kalender):
-           MASUK=hijau, PULANG=kuning/amber, CUTI=biru, OFF=ungu. Desain ini
-           sengaja dibuat generik (data-tipe + peta warna terpusat di CSS/JS)
-           supaya gampang ditambah tipe baru nanti tanpa bongkar ulang. -->
+           MASUK=hijau, PULANG=kuning/amber, LEMBUR=teal, CUTI=biru, OFF=ungu.
+           Desain ini sengaja dibuat generik (data-tipe + peta warna terpusat
+           di CSS/JS) supaya gampang ditambah tipe baru nanti tanpa bongkar ulang. -->
       <p id="status-absen" class="status-absen"></p>
       <div class="grid-tombol-absen">
         <button id="btn-absen-masuk" class="tombol-absen tombol-masuk" data-tipe="MASUK">
@@ -100,6 +101,26 @@
             <path d="M21 12H9" />
           </svg>
           <span class="label-tombol">PULANG</span>
+          <span class="cek-tombol" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+          </span>
+        </button>
+        <button id="btn-absen-mulai-lembur" class="tombol-absen tombol-lembur" data-tipe="MULAI_LEMBUR">
+          <svg class="ikon-tombol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7v5l3 3" />
+          </svg>
+          <span class="label-tombol">MULAI<br />LEMBUR</span>
+          <span class="cek-tombol" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+          </span>
+        </button>
+        <button id="btn-absen-selesai-lembur" class="tombol-absen tombol-lembur" data-tipe="SELESAI_LEMBUR" disabled>
+          <svg class="ikon-tombol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M9.5 12l1.8 1.8L15 10" />
+          </svg>
+          <span class="label-tombol">SELESAI<br />LEMBUR</span>
           <span class="cek-tombol" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
           </span>
@@ -165,6 +186,7 @@
       <div class="legenda">
         <span class="legenda-item"><span class="kotak-legenda kotak-masuk"></span> Masuk</span>
         <span class="legenda-item"><span class="kotak-legenda kotak-pulang"></span> Pulang</span>
+        <span class="legenda-item"><span class="kotak-legenda kotak-lembur"></span> Lembur</span>
         <span class="legenda-item"><span class="kotak-legenda kotak-cuti"></span> Cuti</span>
         <span class="legenda-item"><span class="kotak-legenda kotak-off"></span> Off</span>
         <span class="legenda-item"><span class="kotak-legenda"></span> Tidak ada catatan</span>

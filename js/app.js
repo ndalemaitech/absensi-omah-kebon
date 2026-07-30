@@ -13,24 +13,38 @@
   var modeBuatPin = false;
   var bulanKalender = new Date(); // bulan yang sedang ditampilkan
   var riwayatCache = {}; // { 'YYYY-MM': [records] } — supaya kalender tampil instan, tanpa nunggu network
-  var statusHariIni = { masuk: null, pulang: null, cuti: null, off: null }; // waktu (string) atau null
+  // waktu (string) atau null per tipe absen hari ini
+  var statusHariIni = { masuk: null, pulang: null, mulai_lembur: null, selesai_lembur: null, cuti: null, off: null };
   var tipeAbsenAktif = 'MASUK'; // tipe yang terakhir ditekan, dikunci saat konfirmasi/kirim berlangsung
 
-  // ---- Peta terpusat 4 tipe absen. Kalau nanti nambah tipe baru, cukup
+  // ---- Peta terpusat 6 tipe absen. Kalau nanti nambah tipe baru, cukup
   // tambah entri di sini + elemen tombolnya di index.html + variabel warna
-  // di css/style.css — logika di bawah sudah generik, tidak hardcode 2 tipe. ----
-  var ID_TOMBOL = { MASUK: 'btn-absen-masuk', PULANG: 'btn-absen-pulang', CUTI: 'btn-absen-cuti', OFF: 'btn-absen-off' };
-  var KUNCI_STATUS = { MASUK: 'masuk', PULANG: 'pulang', CUTI: 'cuti', OFF: 'off' };
-  var BUTUH_LOKASI = { MASUK: true, PULANG: true, CUTI: false, OFF: false };
+  // di css/style.css — logika di bawah sudah generik, tidak hardcode tipe. ----
+  var ID_TOMBOL = {
+    MASUK: 'btn-absen-masuk',
+    PULANG: 'btn-absen-pulang',
+    MULAI_LEMBUR: 'btn-absen-mulai-lembur',
+    SELESAI_LEMBUR: 'btn-absen-selesai-lembur',
+    CUTI: 'btn-absen-cuti',
+    OFF: 'btn-absen-off'
+  };
+  var KUNCI_STATUS = {
+    MASUK: 'masuk', PULANG: 'pulang', MULAI_LEMBUR: 'mulai_lembur', SELESAI_LEMBUR: 'selesai_lembur', CUTI: 'cuti', OFF: 'off'
+  };
+  var BUTUH_LOKASI = { MASUK: true, PULANG: true, MULAI_LEMBUR: true, SELESAI_LEMBUR: true, CUTI: false, OFF: false };
   var JUDUL_KONFIRMASI = {
     MASUK: 'Absen masuk sekarang?',
     PULANG: 'Absen pulang sekarang?',
+    MULAI_LEMBUR: 'Mulai lembur sekarang?',
+    SELESAI_LEMBUR: 'Selesai lembur sekarang?',
     CUTI: 'Ajukan cuti hari ini?',
     OFF: 'Tandai off hari ini?'
   };
   var JUDUL_SUKSES = {
     MASUK: 'Absen Masuk Berhasil',
     PULANG: 'Absen Pulang Berhasil',
+    MULAI_LEMBUR: 'Mulai Lembur Tercatat',
+    SELESAI_LEMBUR: 'Selesai Lembur Tercatat',
     CUTI: 'Cuti Tercatat',
     OFF: 'Off Tercatat'
   };
@@ -334,28 +348,35 @@
     cekAbsenHariIni(sesi);
   }
 
-  // Gambar ulang KEEMPAT tombol sesuai statusHariIni. Aturan saling-silang
+  // Gambar ulang KEENAM tombol sesuai statusHariIni. Aturan saling-silang
   // ini sengaja dicerminkan dari validasi di backend (Code.gs handleAbsen)
   // supaya karyawan tidak perlu menekan tombol dulu baru tahu ditolak —
   // tombol yang memang akan ditolak server langsung tampil nonaktif/abu-abu:
-  //  - MASUK/PULANG (kelompok "hadir") dan CUTI/OFF (kelompok "tidak hadir")
-  //    saling eksklusif per hari.
+  //  - MASUK/PULANG/MULAI_LEMBUR/SELESAI_LEMBUR (kelompok "hadir"+"lembur")
+  //    dan CUTI/OFF (kelompok "tidak hadir") saling eksklusif per hari.
   //  - PULANG baru bisa ditekan setelah MASUK tercatat.
+  //  - SELESAI LEMBUR baru bisa ditekan setelah MULAI LEMBUR tercatat.
+  //  - Lembur TIDAK diblokir oleh Masuk/Pulang (boleh terjadi di hari yg sama).
   //  - CUTI dan OFF juga saling eksklusif satu sama lain.
   //  - Tipe yang sudah tercatat hari ini ditandai selesai (centang) & dikunci.
   function perbaruiTombolAbsen() {
     var s = statusHariIni;
     var kelompokHadirAktif = !!(s.masuk || s.pulang);
+    var kelompokLemburAktif = !!(s.mulai_lembur || s.selesai_lembur);
     var kelompokTidakHadirAktif = !!(s.cuti || s.off);
 
     aturTombol('MASUK', !!s.masuk, !!s.masuk || kelompokTidakHadirAktif);
     aturTombol('PULANG', !!s.pulang, !!s.pulang || !s.masuk || kelompokTidakHadirAktif);
-    aturTombol('CUTI', !!s.cuti, !!s.cuti || !!s.off || kelompokHadirAktif);
-    aturTombol('OFF', !!s.off, !!s.off || !!s.cuti || kelompokHadirAktif);
+    aturTombol('MULAI_LEMBUR', !!s.mulai_lembur, !!s.mulai_lembur || kelompokTidakHadirAktif);
+    aturTombol('SELESAI_LEMBUR', !!s.selesai_lembur, !!s.selesai_lembur || !s.mulai_lembur || kelompokTidakHadirAktif);
+    aturTombol('CUTI', !!s.cuti, !!s.cuti || !!s.off || kelompokHadirAktif || kelompokLemburAktif);
+    aturTombol('OFF', !!s.off, !!s.off || !!s.cuti || kelompokHadirAktif || kelompokLemburAktif);
 
     var ringkasan = [];
     if (s.masuk) ringkasan.push('Masuk ' + jamPendek(s.masuk));
     if (s.pulang) ringkasan.push('Pulang ' + jamPendek(s.pulang));
+    if (s.mulai_lembur) ringkasan.push('Mulai Lembur ' + jamPendek(s.mulai_lembur));
+    if (s.selesai_lembur) ringkasan.push('Selesai Lembur ' + jamPendek(s.selesai_lembur));
     if (s.cuti) ringkasan.push('Cuti tercatat jam ' + jamPendek(s.cuti));
     if (s.off) ringkasan.push('Off tercatat jam ' + jamPendek(s.off));
     $('status-absen').textContent = ringkasan.join(' · ');
@@ -371,7 +392,7 @@
     var hariIni = new Date();
     var tglIni = tanggalISO(hariIni);
     var bulan = tglIni.substring(0, 7);
-    statusHariIni = { masuk: null, pulang: null, cuti: null, off: null };
+    statusHariIni = { masuk: null, pulang: null, mulai_lembur: null, selesai_lembur: null, cuti: null, off: null };
     apiGet({ action: 'riwayat', id_karyawan: sesi.id_karyawan, bulan: bulan })
       .then(function (data) {
         if (!data.ok) return;
@@ -379,6 +400,8 @@
           if (r.tanggal !== tglIni) return;
           if (r.tipe_absen === 'MASUK') statusHariIni.masuk = r.waktu;
           if (r.tipe_absen === 'PULANG') statusHariIni.pulang = r.waktu;
+          if (r.tipe_absen === 'MULAI_LEMBUR') statusHariIni.mulai_lembur = r.waktu;
+          if (r.tipe_absen === 'SELESAI_LEMBUR') statusHariIni.selesai_lembur = r.waktu;
           if (r.tipe_absen === 'CUTI') statusHariIni.cuti = r.waktu;
           if (r.tipe_absen === 'OFF') statusHariIni.off = r.waktu;
         });
@@ -504,7 +527,7 @@
         $('judul-sukses').textContent = JUDUL_SUKSES[tipe];
         $('tanggal-sukses').textContent = formatTanggalIndonesia(new Date());
         $('jam-sukses').textContent = jamPendek(data.waktu);
-        // Info lokasi hanya relevan untuk MASUK/PULANG (CUTI/OFF tidak merekam GPS)
+        // Info lokasi hanya relevan untuk tipe yang butuh GPS (Masuk/Pulang/Lembur)
         $('lokasi-sukses').classList.toggle('tersembunyi', !BUTUH_LOKASI[tipe]);
         $('layar-sukses').className = 'layar layar-sukses layar-sukses-' + tipe.toLowerCase();
         tampilkanLayar('layar-sukses');
@@ -600,12 +623,14 @@
   }
 
   // Urutan prioritas warna kalau satu hari punya lebih dari satu record.
-  // CUTI/OFF tak pernah bercampur dengan MASUK/PULANG di hari yang sama
-  // (dijamin saling eksklusif oleh backend) — satu-satunya kombinasi nyata
-  // adalah MASUK+PULANG di hari yang sama, dan PULANG "menang" karena
-  // artinya hari itu sudah lengkap/selesai.
-  var PRIORITAS_TIPE = ['CUTI', 'OFF', 'PULANG', 'MASUK'];
-  var KELAS_HADIR_SEMUA = ['hadir-masuk', 'hadir-pulang', 'hadir-cuti', 'hadir-off'];
+  // CUTI/OFF tak pernah bercampur dengan MASUK/PULANG/LEMBUR di hari yang
+  // sama (dijamin saling eksklusif oleh backend). MASUK+PULANG di hari yang
+  // sama tetap mungkin (PULANG "menang" karena artinya hari itu lengkap).
+  // Lembur ditaruh PALING BAWAH prioritas — cuma jadi warna dominan kalau
+  // hari itu TIDAK ada Masuk/Pulang sama sekali (jarang, tapi mungkin utk
+  // bisnis venue/event yang jadwalnya tidak selalu shift reguler).
+  var PRIORITAS_TIPE = ['CUTI', 'OFF', 'PULANG', 'MASUK', 'SELESAI_LEMBUR', 'MULAI_LEMBUR'];
+  var KELAS_HADIR_SEMUA = ['hadir-masuk', 'hadir-pulang', 'hadir-mulai_lembur', 'hadir-selesai_lembur', 'hadir-cuti', 'hadir-off'];
 
   // Tandai tanggal di grid kalender dengan warna sesuai tipe absen dominan
   // hari itu — dipakai baik oleh cache lokal maupun data segar dari server,

@@ -21,6 +21,8 @@
   --warna-masuk-tua: #047857;
   --warna-pulang: #b45309;     /* kuning/amber tua — kontras cukup untuk teks putih */
   --warna-pulang-tua: #92400e;
+  --warna-lembur: #0e7490;     /* teal — Mulai & Selesai Lembur pakai warna sama (satu identitas "Lembur") */
+  --warna-lembur-tua: #155e75;
   --warna-cuti: #2563eb;       /* biru */
   --warna-cuti-tua: #1d4ed8;
   --warna-off: #7c3aed;        /* ungu */
@@ -299,7 +301,8 @@ h1 {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 24px;
+  gap: 20px;
+  padding: 12px 0;
 }
 
 .status-absen {
@@ -311,15 +314,16 @@ h1 {
   padding: 0 12px;
 }
 
-/* Grid 2x2 — 4 tombol terpisah, satu per tipe absen. Tiap tombol punya
-   warna latar sendiri (lihat .tombol-masuk dkk) yang sama persis dengan
-   warna dipakai di modal konfirmasi, layar sukses, dan kalender. */
+/* Grid 2 kolom x 3 baris — 6 tombol terpisah, dikelompokkan Hadir / Lembur /
+   Izin (lihat urutan di index.html). Tiap tombol punya warna latar sendiri
+   (lihat .tombol-masuk dkk) yang sama persis dengan warna dipakai di modal
+   konfirmasi, layar sukses, dan kalender. */
 .grid-tombol-absen {
   width: 100%;
-  max-width: 380px;
+  max-width: 340px;
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
+  gap: 12px;
 }
 
 .tombol-absen {
@@ -327,14 +331,15 @@ h1 {
   aspect-ratio: 1;
   border-radius: 20px;
   color: var(--putih);
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 800;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
+  line-height: 1.2;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
   transition: transform 0.15s, background-color 0.2s, opacity 0.2s, box-shadow 0.2s;
 }
@@ -350,8 +355,8 @@ h1 {
 }
 
 .ikon-tombol {
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
 }
 
 /* Lencana centang di pojok kanan atas — muncul kalau tipe itu sudah
@@ -386,6 +391,10 @@ h1 {
 .tombol-pulang:active { background: var(--warna-pulang-tua); }
 .tombol-pulang .cek-tombol svg { color: var(--warna-pulang); }
 
+.tombol-lembur { background: var(--warna-lembur); }
+.tombol-lembur:active { background: var(--warna-lembur-tua); }
+.tombol-lembur .cek-tombol svg { color: var(--warna-lembur); }
+
 .tombol-cuti { background: var(--warna-cuti); }
 .tombol-cuti:active { background: var(--warna-cuti-tua); }
 .tombol-cuti .cek-tombol svg { color: var(--warna-cuti); }
@@ -412,6 +421,8 @@ h1 {
 }
 
 .kartu-konfirmasi-pulang { --warna-konfirmasi: var(--warna-pulang); }
+.kartu-konfirmasi-mulai_lembur,
+.kartu-konfirmasi-selesai_lembur { --warna-konfirmasi: var(--warna-lembur); }
 .kartu-konfirmasi-cuti { --warna-konfirmasi: var(--warna-cuti); }
 .kartu-konfirmasi-off { --warna-konfirmasi: var(--warna-off); }
 
@@ -450,6 +461,8 @@ h1 {
 }
 
 .layar-sukses-pulang { --warna-sukses: var(--warna-pulang); }
+.layar-sukses-mulai_lembur,
+.layar-sukses-selesai_lembur { --warna-sukses: var(--warna-lembur); }
 .layar-sukses-cuti { --warna-sukses: var(--warna-cuti); }
 .layar-sukses-off { --warna-sukses: var(--warna-off); }
 
@@ -619,12 +632,10 @@ h1 {
   background: transparent;
 }
 
-/* Satu warna dominan per hari (bukan campuran) — hari kerja tanpa PULANG
-   (masih berjalan) tampil hijau (MASUK), begitu PULANG tercatat warnanya
-   berubah jadi amber (menandakan hari itu SELESAI/lengkap). CUTI dan OFF
-   tidak akan pernah bercampur dengan MASUK/PULANG di hari yang sama
-   (sudah dijamin saling eksklusif oleh backend), jadi tidak perlu logika
-   gabungan warna — satu tipe per sel per hari sudah cukup. */
+/* Satu warna dominan per hari (bukan campuran). Prioritas (lihat app.js
+   PRIORITAS_TIPE): Cuti/Off (hari libur/izin) > Pulang (hari kerja lengkap)
+   > Masuk (hari kerja berjalan) > Lembur (cuma tampil dominan kalau TIDAK
+   ada Masuk/Pulang hari itu — jarang, tapi mungkin di bisnis venue/event). */
 .sel-tanggal.hadir-masuk {
   background: var(--warna-masuk);
   color: var(--putih);
@@ -633,6 +644,13 @@ h1 {
 
 .sel-tanggal.hadir-pulang {
   background: var(--warna-pulang);
+  color: var(--putih);
+  font-weight: 800;
+}
+
+.sel-tanggal.hadir-mulai_lembur,
+.sel-tanggal.hadir-selesai_lembur {
+  background: var(--warna-lembur);
   color: var(--putih);
   font-weight: 800;
 }
@@ -681,6 +699,7 @@ h1 {
 
 .kotak-legenda.kotak-masuk { background: var(--warna-masuk); border-color: var(--warna-masuk); }
 .kotak-legenda.kotak-pulang { background: var(--warna-pulang); border-color: var(--warna-pulang); }
+.kotak-legenda.kotak-lembur { background: var(--warna-lembur); border-color: var(--warna-lembur); }
 .kotak-legenda.kotak-cuti { background: var(--warna-cuti); border-color: var(--warna-cuti); }
 .kotak-legenda.kotak-off { background: var(--warna-off); border-color: var(--warna-off); }
 

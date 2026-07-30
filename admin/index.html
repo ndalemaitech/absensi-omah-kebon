@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#064e3b" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Dashboard Admin — Absensi Omah Kebon</title>
+  <link rel="icon" href="../icons/icon-192.png" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="css/admin.css" />
+</head>
+<body class="admin-body">
+
+  <!-- ============ LAYAR: LOGIN ADMIN ============ -->
+  <section id="admin-layar-login" class="admin-layar admin-layar-aktif">
+    <div class="admin-kartu-login">
+      <h1 class="admin-judul-app">Dashboard Admin<br />Absensi Omah Kebon</h1>
+
+      <div id="admin-login-pilih">
+        <label for="admin-pilih-akun" class="label-besar">Login sebagai</label>
+        <select id="admin-pilih-akun" class="select-besar">
+          <option value="">-- Pilih akun --</option>
+        </select>
+        <button id="admin-btn-lanjut-akun" class="btn btn-utama" disabled>LANJUT</button>
+      </div>
+
+      <div id="admin-login-pin" class="tersembunyi">
+        <p id="admin-pin-nama-terpilih" class="teks-sedang"></p>
+        <p id="admin-pin-instruksi" class="label-besar">Masukkan PIN Anda</p>
+        <input id="admin-pin-input" class="admin-input-pin" type="password" inputmode="numeric" maxlength="4" autocomplete="off" />
+        <p id="admin-pin-error" class="teks-error" role="alert"></p>
+        <button id="admin-btn-kirim-pin" class="btn btn-utama">MASUK</button>
+        <button id="admin-btn-batal-pin" class="btn btn-batal">Kembali</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ LAYAR: DASHBOARD ============ -->
+  <section id="admin-layar-dashboard" class="admin-layar">
+    <header class="admin-header">
+      <div>
+        <p class="admin-sapaan">Halo, <strong id="admin-nama-aktif"></strong></p>
+        <p id="admin-role-aktif" class="admin-role-badge"></p>
+      </div>
+      <button id="admin-btn-keluar" class="admin-btn-keluar">Keluar</button>
+    </header>
+
+    <nav id="admin-nav-tab" class="admin-nav-tab">
+      <button class="admin-tab-item aktif" data-tab="lembur">Verifikasi Lembur</button>
+      <button class="admin-tab-item" data-tab="pengajuan">Pengajuan Cuti/Izin</button>
+      <button class="admin-tab-item" data-tab="rekap">Rekap Gaji</button>
+      <button class="admin-tab-item" data-tab="akun">Kelola Akun Admin</button>
+      <button class="admin-tab-item" data-tab="pin">Ganti PIN Saya</button>
+    </nav>
+
+    <!-- ---- Tab: Verifikasi Lembur ---- -->
+    <div id="admin-tab-lembur" class="admin-tab-konten aktif">
+      <h2 class="admin-judul-tab">Sesi Lembur Menunggu Verifikasi</h2>
+      <p class="admin-keterangan">Cuma sesi yang sudah lengkap (Mulai + Selesai Lembur) yang muncul di sini. Verifikasi memastikan jam lembur ini benar sebelum ikut dihitung ke rekap gaji.</p>
+      <div id="admin-lembur-kosong" class="admin-kosong tersembunyi">Tidak ada sesi lembur yang menunggu verifikasi.</div>
+      <div class="admin-tabel-wrap">
+        <table class="admin-tabel">
+          <thead>
+            <tr><th>Nama</th><th>Tanggal</th><th>Mulai</th><th>Selesai</th><th>Durasi</th><th></th></tr>
+          </thead>
+          <tbody id="admin-lembur-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ---- Tab: Pengajuan Cuti/Izin (placeholder, menunggu form final) ---- -->
+    <div id="admin-tab-pengajuan" class="admin-tab-konten">
+      <h2 class="admin-judul-tab">Pengajuan Cuti/Izin</h2>
+      <div class="admin-placeholder">
+        <p><strong>Fitur ini belum aktif.</strong></p>
+        <p>Form pengajuan Cuti/Sakit/Izin Biasa/Off dan antrean approve-nya menunggu detail field dari form kertas yang sudah dipakai Mas Abim di lapangan. Setelah itu didapat, tab ini akan menampilkan antrean pengajuan untuk direview dan diputuskan Owner.</p>
+      </div>
+    </div>
+
+    <!-- ---- Tab: Rekap Gaji ---- -->
+    <div id="admin-tab-rekap" class="admin-tab-konten">
+      <h2 class="admin-judul-tab">Rekap Gaji (Dasar)</h2>
+      <p class="admin-keterangan" id="admin-rekap-catatan"></p>
+      <div class="admin-rekap-kontrol">
+        <label for="admin-rekap-bulan">Bulan</label>
+        <input id="admin-rekap-bulan" type="month" />
+        <button id="admin-btn-muat-rekap" class="admin-btn-kecil">Tampilkan</button>
+      </div>
+      <div class="admin-tabel-wrap">
+        <table class="admin-tabel">
+          <thead>
+            <tr><th>Nama</th><th>Hari Masuk</th><th>Hari Lengkap</th><th>Jam Lembur Terverifikasi</th></tr>
+          </thead>
+          <tbody id="admin-rekap-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ---- Tab: Kelola Akun Admin (khusus Owner) ---- -->
+    <div id="admin-tab-akun" class="admin-tab-konten">
+      <h2 class="admin-judul-tab">Kelola Akun Admin</h2>
+      <p class="admin-keterangan">Khusus Owner. Atur siapa saja admin, dan apa yang boleh mereka lakukan — tanpa perlu minta developer ubah kode.</p>
+
+      <div class="admin-tabel-wrap">
+        <table class="admin-tabel">
+          <thead>
+            <tr><th>Nama</th><th>Role</th><th>Status</th><th>Approve Pengajuan</th><th>Verifikasi Lembur</th><th>Lihat Rekap Gaji</th><th>Aksi</th></tr>
+          </thead>
+          <tbody id="admin-akun-tbody"></tbody>
+        </table>
+      </div>
+
+      <h3 class="admin-subjudul">Tambah Akun Admin Baru</h3>
+      <div class="admin-form-baris">
+        <input id="admin-akun-nama-baru" type="text" placeholder="Nama" class="admin-input-teks" />
+        <select id="admin-akun-role-baru" class="admin-input-teks">
+          <option value="HR">HR</option>
+          <option value="REKAP">Rekap</option>
+          <option value="OWNER">Owner</option>
+        </select>
+        <button id="admin-btn-tambah-akun" class="admin-btn-kecil">Tambah</button>
+      </div>
+      <p id="admin-akun-pesan" class="teks-error" role="alert"></p>
+    </div>
+
+    <!-- ---- Tab: Ganti PIN Saya ---- -->
+    <div id="admin-tab-pin" class="admin-tab-konten">
+      <h2 class="admin-judul-tab">Ganti PIN Saya</h2>
+      <p class="admin-keterangan">Ganti PIN login Anda sendiri kapan saja — tidak perlu minta siapa pun.</p>
+      <div class="admin-form-vertikal">
+        <label for="admin-pin-lama">PIN lama</label>
+        <input id="admin-pin-lama" class="admin-input-pin admin-input-pin-kecil" type="password" inputmode="numeric" maxlength="4" />
+        <label for="admin-pin-baru">PIN baru (4 angka)</label>
+        <input id="admin-pin-baru" class="admin-input-pin admin-input-pin-kecil" type="password" inputmode="numeric" maxlength="4" />
+        <button id="admin-btn-ganti-pin" class="btn btn-utama">SIMPAN PIN BARU</button>
+        <p id="admin-ganti-pin-pesan" class="teks-error" role="alert"></p>
+      </div>
+    </div>
+  </section>
+
+  <script src="../js/config.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>

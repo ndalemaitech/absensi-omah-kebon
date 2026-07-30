@@ -1,0 +1,279 @@
+/* Dashboard Admin — Absensi Omah Kebon.
+   Reuse variabel warna & reset dari ../css/style.css (di-load duluan di
+   admin/index.html). File ini cuma nambah layout khusus dashboard —
+   desktop-friendly (bukan mobile-first spt app karyawan), krn admin lebih
+   sering dipakai dari laptop untuk rekap. */
+
+.admin-body {
+  font-size: 16px;
+  background: var(--latar);
+}
+
+.admin-layar {
+  display: none;
+  min-height: 100vh;
+  padding: 24px 20px 60px;
+}
+
+.admin-layar-aktif {
+  display: block;
+}
+
+/* ---- Login ---- */
+
+.admin-kartu-login {
+  max-width: 380px;
+  margin: 10vh auto 0;
+  background: var(--putih);
+  border-radius: var(--radius);
+  border: 2px solid var(--abu-border);
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: center;
+}
+
+.admin-judul-app {
+  font-size: 22px;
+  color: var(--hijau-gelap);
+  margin-bottom: 8px;
+}
+
+.admin-input-pin {
+  width: 100%;
+  font-size: 28px;
+  letter-spacing: 10px;
+  text-align: center;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 2px solid var(--abu-border);
+}
+
+.admin-input-pin-kecil {
+  font-size: 20px;
+  letter-spacing: 6px;
+  padding: 10px;
+  max-width: 200px;
+}
+
+/* ---- Dashboard shell ---- */
+
+.admin-header {
+  max-width: 1000px;
+  margin: 0 auto 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.admin-sapaan {
+  font-size: 15px;
+  color: var(--teks-redup);
+}
+
+.admin-role-badge {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--hijau-gelap);
+  background: var(--hijau-muda);
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+.admin-btn-keluar {
+  background: var(--putih);
+  border: 2px solid var(--abu-border);
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-weight: 700;
+  color: var(--teks-redup);
+}
+
+.admin-nav-tab {
+  max-width: 1000px;
+  margin: 0 auto 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 2px solid var(--abu-border);
+  padding-bottom: 10px;
+}
+
+.admin-tab-item {
+  background: var(--putih);
+  border: 2px solid var(--abu-border);
+  border-radius: 10px;
+  padding: 9px 16px;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--teks-redup);
+}
+
+.admin-tab-item.aktif {
+  background: var(--hijau);
+  border-color: var(--hijau);
+  color: var(--putih);
+}
+
+.admin-tab-tersembunyi {
+  display: none !important;
+}
+
+.admin-tab-konten {
+  display: none;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.admin-tab-konten.aktif {
+  display: block;
+}
+
+.admin-judul-tab {
+  font-size: 20px;
+  color: var(--hijau-gelap);
+  margin-bottom: 6px;
+}
+
+.admin-subjudul {
+  font-size: 17px;
+  color: var(--hijau-gelap);
+  margin: 22px 0 10px;
+}
+
+.admin-keterangan {
+  font-size: 14px;
+  color: var(--teks-redup);
+  margin-bottom: 16px;
+  max-width: 640px;
+}
+
+.admin-placeholder {
+  background: var(--putih);
+  border: 2px dashed var(--abu-border);
+  border-radius: var(--radius);
+  padding: 20px;
+  color: var(--teks-redup);
+  font-size: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-kosong {
+  background: var(--hijau-muda);
+  color: var(--hijau-gelap);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+/* ---- Tabel ---- */
+
+.admin-tabel-wrap {
+  overflow-x: auto;
+  background: var(--putih);
+  border-radius: var(--radius);
+  border: 2px solid var(--abu-border);
+}
+
+.admin-tabel {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.admin-tabel th,
+.admin-tabel td {
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--abu-border);
+  white-space: nowrap;
+}
+
+.admin-tabel th {
+  background: var(--latar);
+  color: var(--teks-redup);
+  font-weight: 700;
+}
+
+.admin-tabel tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ---- Kontrol kecil ---- */
+
+.admin-btn-kecil {
+  background: var(--hijau);
+  color: var(--putih);
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.admin-btn-kecil:active {
+  background: var(--hijau-tua);
+}
+
+.admin-btn-verifikasi {
+  background: var(--warna-lembur);
+}
+
+.admin-btn-reset-pin {
+  background: var(--putih);
+  color: var(--teks-redup);
+  border: 2px solid var(--abu-border);
+}
+
+.admin-btn-toggle-aktif {
+  background: var(--merah);
+}
+
+.admin-rekap-kontrol {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.admin-rekap-kontrol input[type="month"] {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 2px solid var(--abu-border);
+  font-family: inherit;
+}
+
+.admin-form-baris {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.admin-input-teks {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 2px solid var(--abu-border);
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.admin-form-vertikal {
+  max-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-form-vertikal label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--teks-redup);
+  margin-top: 8px;
+}
