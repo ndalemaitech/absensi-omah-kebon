@@ -6,15 +6,13 @@
  *   GET  ?action=getKaryawan                 → daftar karyawan aktif untuk dropdown
  *   POST action=login   {id_karyawan, pin, buat_baru}  → verifikasi PIN / set PIN baru
  *   POST action=absen   {id_karyawan, lat, lng, tipe_absen} → catat absen
- *        tipe_absen: "MASUK", "PULANG", "MULAI_LEMBUR", "SELESAI_LEMBUR", "CUTI", atau "OFF".
- *        - MASUK/PULANG/MULAI_LEMBUR/SELESAI_LEMBUR wajib sertakan lat/lng (perlu verifikasi lokasi).
- *        - CUTI/OFF tidak butuh lat/lng (karyawan tidak wajib di lokasi).
+ *        tipe_absen: "MASUK", "PULANG", "MULAI_LEMBUR", atau "SELESAI_LEMBUR" SAJA.
+ *        - Semua tipe ini wajib sertakan lat/lng (perlu verifikasi lokasi).
  *        - PULANG ditolak kalau belum ada MASUK di hari yang sama.
  *        - SELESAI_LEMBUR ditolak kalau belum ada MULAI_LEMBUR di hari yang sama.
- *        - Kelompok "hadir" (MASUK/PULANG/MULAI_LEMBUR/SELESAI_LEMBUR) dan kelompok
- *          "tidak hadir" (CUTI/OFF) saling eksklusif per hari — sekali salah satu
- *          kelompok tercatat, kelompok lain ditolak (lihat handleAbsen). Lembur TIDAK
- *          eksklusif terhadap Masuk/Pulang — keduanya boleh terjadi di hari yang sama.
+ *        - Ditolak kalau hari itu sudah ada Cuti/Sakit/Izin Biasa/Off yang DISETUJUI
+ *          (lihat fitur Pengajuan Izin di bawah — cuti/off TIDAK LAGI bisa
+ *          di-self-report langsung dari layar absen sejak 2026-07-30).
  *   GET  ?action=riwayat&id_karyawan=..&bulan=YYYY-MM → data absen 1 bulan
  *
  * Endpoint admin dashboard (ditambahkan 2026-07-30 — fitur Lembur + Dashboard Admin):
@@ -26,33 +24,52 @@
  *   POST action=adminSimpanAkun {actor_id_admin, mode, ...}  → KHUSUS OWNER: kelola akun admin
  *        mode: 'tambah' {nama, role} | 'reset_pin' {target_id_admin}
  *            | 'nonaktifkan'/'aktifkan' {target_id_admin}
- *            | 'edit_izin' {target_id_admin, izin_approve_pengajuan?, izin_verifikasi_lembur?, izin_lihat_rekap_gaji?}
+ *            | 'edit_izin' {target_id_admin, izin_approve_pengajuan?, izin_verifikasi_lembur?,
+ *                            izin_lihat_rekap_gaji?, izin_lihat_pengajuan?}
  *   GET  ?action=getAntreanLembur&actor_id_admin=..         → sesi lembur (mulai+selesai lengkap)
  *                                                               yang belum diverifikasi. Butuh izin
  *                                                               izin_verifikasi_lembur atau role OWNER.
  *   POST action=verifikasiLembur {actor_id_admin, id_karyawan, tanggal} → tandai sesi lembur
  *        tanggal itu TERVERIFIKASI. Butuh izin izin_verifikasi_lembur atau role OWNER.
  *   GET  ?action=getRekapGaji&actor_id_admin=..&bulan=YYYY-MM → rekap dasar per karyawan
- *        (hari masuk, hari lengkap, jam lembur terverifikasi). BELUM termasuk cuti/izin —
- *        menunggu skema Form Izin final (lihat MEMORY.md). Butuh izin izin_lihat_rekap_gaji
- *        atau role OWNER.
+ *        (hari masuk, hari lengkap, jam lembur terverifikasi). BELUM termasuk cuti/izin.
+ *        Butuh izin izin_lihat_rekap_gaji atau role OWNER.
+ *
+ * Endpoint Pengajuan Izin (Cuti/Sakit/Izin Biasa/Off — ditambahkan 2026-07-30):
+ *   POST action=ajukanIzin {id_karyawan, tipe_izin, tanggal_mulai, tanggal_selesai, alasan,
+ *                            lampiran_base64?, lampiran_mime?, lampiran_nama?}
+ *        → karyawan submit pengajuan baru, status awal selalu PENDING. tipe_izin salah satu
+ *          dari CUTI/SAKIT/IZIN_BIASA/OFF. Lampiran opsional (foto, sudah dikompresi di
+ *          client sebelum dikirim), diunggah ke folder Drive khusus.
+ *   GET  ?action=getPengajuanSaya&id_karyawan=..   → riwayat pengajuan milik karyawan itu sendiri
+ *   GET  ?action=getAntreanPengajuan&actor_id_admin=..  → daftar pengajuan berstatus PENDING.
+ *        Butuh izin izin_lihat_pengajuan atau role OWNER (lihat-saja, BUKAN otomatis boleh
+ *        memutuskan — lihat model izin di bawah).
+ *   POST action=putuskanPengajuan {actor_id_admin, id_pengajuan, keputusan, catatan_admin?}
+ *        → keputusan: DISETUJUI atau DITOLAK. Butuh izin izin_approve_pengajuan atau role
+ *          OWNER. Kalau DISETUJUI, sistem otomatis menulis baris di tab Absensi untuk SETIAP
+ *          tanggal dalam rentang (tipe_absen = tipe_izin), memakai ulang mesin saling-eksklusif
+ *          yang sama dengan absen manual (lihat tulisAbsenTidakHadir) — supaya kalender &
+ *          guard bentrok Masuk/Pulang/Lembur otomatis konsisten tanpa kode terpisah.
  *
  *   Model izin admin: role OWNER selalu boleh semua aksi (bypass semua pengecekan izin).
- *   Role lain (HR/REKAP) diatur lewat 3 kolom izin_* yang bisa diubah OWNER kapan saja lewat
+ *   Role lain (HR/REKAP) diatur lewat kolom izin_* yang bisa diubah OWNER kapan saja lewat
  *   adminSimpanAkun mode 'edit_izin' — TIDAK hardcode di kode, supaya Mas Abim bisa geser
- *   wewenang Mbak Tika/Bu Lis sendiri tanpa minta developer ubah kode. Satu-satunya hal yang
- *   TETAP hardcode (tidak bisa diubah lewat dashboard oleh siapa pun): hanya role === 'OWNER'
- *   yang boleh memanggil adminSimpanAkun sama sekali — ini jaga supaya kendali akun admin
- *   selalu berawal dari Mas Abim, sesuai keputusan bisnis (lihat MEMORY.md Omah Kebon).
+ *   wewenang Mbak Tika/Bu Lis sendiri tanpa minta developer ubah kode. Catatan khusus fitur
+ *   Pengajuan: izin_lihat_pengajuan (lihat antrean & baca detail) SENGAJA dipisah dari
+ *   izin_approve_pengajuan (boleh memutuskan) — supaya Bu Lis (HR) bisa diberi akses lihat
+ *   tanpa otomatis punya wewenang memutuskan, sesuai keputusan bisnis: approve/reject Cuti/
+ *   Izin cuma dipegang Mas Abim, Bu Lis cuma lihat & bisa dikasih akses baca (lihat MEMORY.md).
+ *   Satu-satunya hal yang TETAP hardcode (tidak bisa diubah lewat dashboard oleh siapa pun):
+ *   hanya role === 'OWNER' yang boleh memanggil adminSimpanAkun sama sekali.
  *
  * Script ini HARUS bound ke Google Sheet-nya (dibuat lewat menu
  * Extensions → Apps Script dari dalam Sheet).
  *
  * Setup awal / migrasi: jalankan fungsi setupSheet() dari editor Apps Script untuk
- * membuat tab Karyawan, Absensi, Config, dan (baru) Admin — lengkap dengan header dan
- * data contoh. AMAN dijalankan ulang kapan saja (idempotent): tab yang sudah ada tidak
- * ditimpa, dan kalau tab Absensi lama belum punya 3 kolom verifikasi lembur, kolom itu
- * otomatis ditambahkan tanpa mengubah data yang sudah ada.
+ * membuat tab Karyawan, Absensi, Config, Admin, dan (baru) Pengajuan — lengkap dengan
+ * header dan data contoh. AMAN dijalankan ulang kapan saja (idempotent): tab yang sudah
+ * ada tidak ditimpa, kolom yang hilang otomatis ditambahkan tanpa mengubah data lama.
  */
 
 var TIMEZONE = 'Asia/Jakarta';
@@ -61,6 +78,7 @@ var SHEET_KARYAWAN = 'Karyawan';
 var SHEET_ABSENSI = 'Absensi';
 var SHEET_CONFIG = 'Config';
 var SHEET_ADMIN = 'Admin';
+var SHEET_PENGAJUAN = 'Pengajuan';
 
 // Nilai default tab Config (Fase A — build & testing)
 var DEFAULT_CONFIG = {
@@ -79,6 +97,8 @@ function doGet(e) {
     if (action === 'getDaftarAdmin') return jsonOut(handleGetDaftarAdmin());
     if (action === 'getAntreanLembur') return jsonOut(handleGetAntreanLembur(e.parameter.actor_id_admin));
     if (action === 'getRekapGaji') return jsonOut(handleGetRekapGaji(e.parameter.actor_id_admin, e.parameter.bulan));
+    if (action === 'getPengajuanSaya') return jsonOut(handleGetPengajuanSaya(e.parameter.id_karyawan));
+    if (action === 'getAntreanPengajuan') return jsonOut(handleGetAntreanPengajuan(e.parameter.actor_id_admin));
     return jsonOut({ ok: false, error: 'Action tidak dikenal: ' + action });
   } catch (err) {
     return jsonOut({ ok: false, error: String(err) });
@@ -95,6 +115,8 @@ function doPost(e) {
     if (action === 'adminGantiPin') return jsonOut(handleAdminGantiPin(body));
     if (action === 'adminSimpanAkun') return jsonOut(handleAdminSimpanAkun(body));
     if (action === 'verifikasiLembur') return jsonOut(handleVerifikasiLembur(body));
+    if (action === 'ajukanIzin') return jsonOut(handleAjukanIzin(body));
+    if (action === 'putuskanPengajuan') return jsonOut(handlePutuskanPengajuan(body));
     return jsonOut({ ok: false, error: 'Action tidak dikenal: ' + action });
   } catch (err) {
     return jsonOut({ ok: false, error: String(err) });
@@ -177,22 +199,25 @@ function hashPin(idPemilik, pin) {
 
 // ===================== ENDPOINT: absen =====================
 
-var TIPE_ABSEN_VALID = ['MASUK', 'PULANG', 'MULAI_LEMBUR', 'SELESAI_LEMBUR', 'CUTI', 'OFF'];
-// Tiga "golongan" tipe absen:
-//  - HADIR: kerja normal, butuh lokasi.
-//  - LEMBUR: jam tambahan, butuh lokasi, TIDAK eksklusif terhadap HADIR (boleh
-//    terjadi di hari yang sama — karyawan wajar absen masuk+pulang lalu lembur).
-//  - TIDAK_HADIR: cuti/off, tidak butuh lokasi, eksklusif terhadap HADIR+LEMBUR
-//    (tidak masuk akal "cuti" tapi juga "lembur" di hari yang sama).
+// Sejak 2026-07-30: action=absen HANYA menerima 4 tipe ini (kelompok Hadir +
+// Lembur). Cuti/Sakit/Izin Biasa/Off TIDAK LAGI bisa di-self-report langsung
+// dari sini — semua lewat alur Pengajuan Izin (ajukanIzin → approval Owner →
+// baru ditulis ke Absensi lewat tulisAbsenTidakHadir). Lihat komentar atas file.
 var KELOMPOK_HADIR = ['MASUK', 'PULANG'];
 var KELOMPOK_LEMBUR = ['MULAI_LEMBUR', 'SELESAI_LEMBUR'];
-var KELOMPOK_TIDAK_HADIR = ['CUTI', 'OFF'];
+var TIPE_ABSEN_LANGSUNG = KELOMPOK_HADIR.concat(KELOMPOK_LEMBUR);
+// Kelompok "tidak hadir" — sekarang 4 tipe (dulu cuma Cuti/Off), semuanya
+// datang dari Pengajuan Izin yang disetujui. Saling eksklusif satu sama lain
+// DAN eksklusif terhadap Hadir+Lembur (lihat tulisAbsenTidakHadir).
+var KELOMPOK_TIDAK_HADIR = ['CUTI', 'SAKIT', 'IZIN_BIASA', 'OFF'];
 var LABEL_TIPE = {
   MASUK: 'masuk',
   PULANG: 'pulang',
   MULAI_LEMBUR: 'mulai lembur',
   SELESAI_LEMBUR: 'selesai lembur',
   CUTI: 'cuti',
+  SAKIT: 'sakit',
+  IZIN_BIASA: 'izin',
   OFF: 'off'
 };
 
@@ -200,18 +225,18 @@ function handleAbsen(body) {
   var id = String(body.id_karyawan || '').trim();
   var tipe = String(body.tipe_absen || 'MASUK').trim().toUpperCase();
   if (!id) return { ok: false, error: 'id_karyawan wajib diisi.' };
-  if (TIPE_ABSEN_VALID.indexOf(tipe) === -1) {
+  if (TIPE_ABSEN_LANGSUNG.indexOf(tipe) === -1) {
+    if (KELOMPOK_TIDAK_HADIR.indexOf(tipe) !== -1) {
+      return { ok: false, error: 'Cuti/Sakit/Izin/Off sekarang lewat menu "Ajukan Izin", bukan absen langsung.' };
+    }
     return { ok: false, error: 'tipe_absen tidak dikenal: ' + tipe };
   }
 
-  var butuhLokasi = KELOMPOK_HADIR.indexOf(tipe) !== -1 || KELOMPOK_LEMBUR.indexOf(tipe) !== -1;
-  var lat = butuhLokasi ? parseFloat(body.lat) : (body.lat === undefined || body.lat === null ? null : parseFloat(body.lat));
-  var lng = butuhLokasi ? parseFloat(body.lng) : (body.lng === undefined || body.lng === null ? null : parseFloat(body.lng));
-  if (butuhLokasi && (isNaN(lat) || isNaN(lng))) {
+  var lat = parseFloat(body.lat);
+  var lng = parseFloat(body.lng);
+  if (isNaN(lat) || isNaN(lng)) {
     return { ok: false, error: 'Lokasi GPS tidak terbaca. Coba lagi.' };
   }
-  if (!butuhLokasi && (isNaN(lat) || lat === null)) lat = '';
-  if (!butuhLokasi && (isNaN(lng) || lng === null)) lng = '';
 
   var karyawan = findKaryawan(id);
   if (!karyawan) return { ok: false, error: 'Karyawan tidak ditemukan.' };
@@ -242,26 +267,15 @@ function handleAbsen(body) {
       }
     }
 
-    // Guard saling-eksklusif: TIDAK_HADIR lawannya HADIR+LEMBUR gabungan;
-    // HADIR/LEMBUR lawannya TIDAK_HADIR saja (Lembur tidak konflik dgn Hadir).
-    var kelompokLawan = KELOMPOK_TIDAK_HADIR.indexOf(tipe) !== -1
-      ? KELOMPOK_HADIR.concat(KELOMPOK_LEMBUR)
-      : KELOMPOK_TIDAK_HADIR;
-    for (var i = 0; i < kelompokLawan.length; i++) {
-      var bentrok = cariAbsenHariIni(id, tanggal, kelompokLawan[i]);
+    // Kalau hari ini sudah ada Cuti/Sakit/Izin/Off yang DISETUJUI (ditulis
+    // lewat tulisAbsenTidakHadir), tolak absen Hadir/Lembur hari itu.
+    for (var i = 0; i < KELOMPOK_TIDAK_HADIR.length; i++) {
+      var bentrok = cariAbsenHariIni(id, tanggal, KELOMPOK_TIDAK_HADIR[i]);
       if (bentrok) {
         return {
           ok: false,
-          error: 'Hari ini sudah ditandai ' + LABEL_TIPE[kelompokLawan[i]].toUpperCase() + ', tidak bisa ' + LABEL_TIPE[tipe] + '.'
+          error: 'Hari ini sudah ditandai ' + LABEL_TIPE[KELOMPOK_TIDAK_HADIR[i]].toUpperCase() + ', tidak bisa ' + LABEL_TIPE[tipe] + '.'
         };
-      }
-    }
-    // Cuti dan Off juga saling eksklusif satu sama lain
-    if (KELOMPOK_TIDAK_HADIR.indexOf(tipe) !== -1) {
-      var lawanSatuGrup = tipe === 'CUTI' ? 'OFF' : 'CUTI';
-      var adaLawan = cariAbsenHariIni(id, tanggal, lawanSatuGrup);
-      if (adaLawan) {
-        return { ok: false, error: 'Hari ini sudah ditandai ' + LABEL_TIPE[lawanSatuGrup].toUpperCase() + '.' };
       }
     }
 
@@ -277,14 +291,9 @@ function handleAbsen(body) {
       };
     }
 
-    var jarak = '';
-    var statusLokasi = 'TIDAK_BERLAKU';
-    if (butuhLokasi) {
-      var config = getConfig();
-      jarak = Math.round(haversineMeter(lat, lng, config.lokasi_kantor_lat, config.lokasi_kantor_lng));
-      statusLokasi = jarak <= config.radius_toleransi_m ? 'DALAM_RADIUS' : 'DILUAR_RADIUS';
-    }
-
+    var config = getConfig();
+    var jarak = Math.round(haversineMeter(lat, lng, config.lokasi_kantor_lat, config.lokasi_kantor_lng));
+    var statusLokasi = jarak <= config.radius_toleransi_m ? 'DALAM_RADIUS' : 'DILUAR_RADIUS';
     var statusVerifikasi = KELOMPOK_LEMBUR.indexOf(tipe) !== -1 ? 'BELUM_DIVERIFIKASI' : 'TIDAK_BERLAKU';
 
     var idAbsen = 'ABS-' + Utilities.formatDate(now, TIMEZONE, 'yyyyMMdd-HHmmss') + '-' + id;
@@ -299,7 +308,7 @@ function handleAbsen(body) {
       lng,
       jarak,
       statusLokasi,
-      '', // catatan — hanya diisi admin untuk baris input manual
+      '', // catatan — hanya diisi admin/sistem untuk baris input manual/pengajuan
       statusVerifikasi, // relevan khusus utk MULAI_LEMBUR/SELESAI_LEMBUR
       '', // diverifikasi_oleh
       ''  // waktu_verifikasi
@@ -317,6 +326,36 @@ function handleAbsen(body) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// Dipakai KHUSUS oleh alur approval Pengajuan Izin (handlePutuskanPengajuan)
+// untuk menulis baris Cuti/Sakit/Izin Biasa/Off ke Absensi — TIDAK dipanggil
+// dari action=absen publik. Tidak butuh lokasi (statusLokasi TIDAK_BERLAKU,
+// sama seperti desain Cuti/Off yang lama). Melewati tanggal yang bentrok
+// (skip, bukan gagal total) supaya approval rentang tanggal tetap jalan
+// sebisa mungkin walau satu-dua hari di tengahnya sudah ada catatan lain.
+function tulisAbsenTidakHadir(idKaryawan, nama, tanggal, tipe, catatan) {
+  var kelompokHadirLembur = KELOMPOK_HADIR.concat(KELOMPOK_LEMBUR);
+  for (var h = 0; h < kelompokHadirLembur.length; h++) {
+    if (cariAbsenHariIni(idKaryawan, tanggal, kelompokHadirLembur[h])) {
+      return { ok: false, alasan: 'sudah ada catatan ' + LABEL_TIPE[kelompokHadirLembur[h]] + ' hari itu' };
+    }
+  }
+  for (var g = 0; g < KELOMPOK_TIDAK_HADIR.length; g++) {
+    if (KELOMPOK_TIDAK_HADIR[g] === tipe) continue;
+    if (cariAbsenHariIni(idKaryawan, tanggal, KELOMPOK_TIDAK_HADIR[g])) {
+      return { ok: false, alasan: 'hari itu sudah ditandai ' + LABEL_TIPE[KELOMPOK_TIDAK_HADIR[g]] };
+    }
+  }
+  var sudah = cariAbsenHariIni(idKaryawan, tanggal, tipe);
+  if (sudah) return { ok: true, sudahAda: true };
+
+  var idAbsen = 'ABS-' + tanggal.replace(/-/g, '') + '-IZIN-' + idKaryawan;
+  getSheet(SHEET_ABSENSI).appendRow([
+    idAbsen, idKaryawan, nama, tanggal, '00:00:00', tipe,
+    '', '', '', 'TIDAK_BERLAKU', catatan || '', 'TIDAK_BERLAKU', '', ''
+  ]);
+  return { ok: true };
 }
 
 function cariAbsenHariIni(idKaryawan, tanggal, tipe) {
@@ -385,7 +424,8 @@ function adminProfilDariBaris(row) {
     status: String(row[4]).trim(),
     izin_approve_pengajuan: castBool(row[5]),
     izin_verifikasi_lembur: castBool(row[6]),
-    izin_lihat_rekap_gaji: castBool(row[7])
+    izin_lihat_rekap_gaji: castBool(row[7]),
+    izin_lihat_pengajuan: castBool(row[9])
   };
 }
 
@@ -451,7 +491,7 @@ function handleAdminLogin(body) {
 
     if (storedHash === '') {
       sheet.getRange(i + 1, 4).setValue(hashPin(id, pin));
-      var profilBaru = adminProfilDariBaris(sheet.getRange(i + 1, 1, 1, 9).getValues()[0]);
+      var profilBaru = adminProfilDariBaris(sheet.getRange(i + 1, 1, 1, 10).getValues()[0]);
       profilBaru.ok = true;
       profilBaru.pin_baru_dibuat = true;
       return profilBaru;
@@ -538,7 +578,8 @@ function handleAdminSimpanAkun(body) {
         role === 'OWNER',
         role === 'OWNER' || role === 'REKAP',
         role === 'OWNER' || role === 'REKAP',
-        today
+        today,
+        role === 'OWNER' || role === 'HR'
       ]);
       return { ok: true, id_admin: idBaru };
     }
@@ -570,6 +611,7 @@ function handleAdminSimpanAkun(body) {
       if (body.izin_approve_pengajuan !== undefined) sheet.getRange(rowIdx, 6).setValue(!!body.izin_approve_pengajuan);
       if (body.izin_verifikasi_lembur !== undefined) sheet.getRange(rowIdx, 7).setValue(!!body.izin_verifikasi_lembur);
       if (body.izin_lihat_rekap_gaji !== undefined) sheet.getRange(rowIdx, 8).setValue(!!body.izin_lihat_rekap_gaji);
+      if (body.izin_lihat_pengajuan !== undefined) sheet.getRange(rowIdx, 10).setValue(!!body.izin_lihat_pengajuan);
       return { ok: true };
     }
     return { ok: false, error: 'mode tidak dikenal: ' + mode };
@@ -727,7 +769,201 @@ function handleGetRekapGaji(actorId, bulan) {
   hasil.sort(function (a, b) {
     return a.nama < b.nama ? -1 : a.nama > b.nama ? 1 : 0;
   });
-  return { ok: true, bulan: bulan, rekap: hasil, catatan: 'Belum termasuk Cuti/Izin — menunggu skema Form Izin final.' };
+  return { ok: true, bulan: bulan, rekap: hasil, catatan: 'Belum termasuk hari Cuti/Sakit/Izin/Off — bisa ditambahkan setelah field final disepakati.' };
+}
+
+// ===================== PENGAJUAN IZIN (Cuti/Sakit/Izin Biasa/Off) =====================
+
+var TIPE_IZIN_VALID = ['CUTI', 'SAKIT', 'IZIN_BIASA', 'OFF'];
+
+function hitungJumlahHari(mulai, selesai) {
+  var a = new Date(mulai + 'T00:00:00');
+  var b = new Date(selesai + 'T00:00:00');
+  return Math.round((b - a) / 86400000) + 1;
+}
+
+function daftarTanggalDalamRentang(mulai, selesai) {
+  var hasil = [];
+  var cur = new Date(mulai + 'T00:00:00');
+  var akhir = new Date(selesai + 'T00:00:00');
+  while (cur <= akhir) {
+    hasil.push(Utilities.formatDate(cur, TIMEZONE, 'yyyy-MM-dd'));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return hasil;
+}
+
+function getOrCreateLampiranFolder() {
+  var namaFolder = 'Lampiran Izin - Absensi Omah Kebon';
+  var folders = DriveApp.getFoldersByName(namaFolder);
+  if (folders.hasNext()) return folders.next();
+  return DriveApp.createFolder(namaFolder);
+}
+
+function simpanLampiran(base64, mime, namaFile) {
+  var folder = getOrCreateLampiranFolder();
+  var bytes = Utilities.base64Decode(base64);
+  var blob = Utilities.newBlob(bytes, mime || 'image/jpeg', namaFile);
+  var file = folder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return file.getUrl();
+}
+
+function pengajuanDariBaris(row) {
+  return {
+    id_pengajuan: String(row[0]).trim(),
+    id_karyawan: String(row[1]).trim(),
+    nama: String(row[2]).trim(),
+    tipe_izin: String(row[3]).trim().toUpperCase(),
+    tanggal_mulai: normalisasiTanggal(row[4]),
+    tanggal_selesai: normalisasiTanggal(row[5]),
+    jumlah_hari: Number(row[6]) || 0,
+    alasan: String(row[7]).trim(),
+    lampiran_url: String(row[8]).trim(),
+    status: String(row[9]).trim(),
+    diajukan_pada: String(row[10]).trim(),
+    diputuskan_oleh: String(row[11]).trim(),
+    diputuskan_pada: String(row[12]).trim(),
+    catatan_admin: String(row[13]).trim()
+  };
+}
+
+function handleAjukanIzin(body) {
+  var id = String(body.id_karyawan || '').trim();
+  var tipeIzin = String(body.tipe_izin || '').trim().toUpperCase();
+  var tanggalMulai = String(body.tanggal_mulai || '').trim();
+  var tanggalSelesai = String(body.tanggal_selesai || '').trim();
+  var alasan = String(body.alasan || '').trim();
+
+  if (!id) return { ok: false, error: 'id_karyawan wajib diisi.' };
+  if (TIPE_IZIN_VALID.indexOf(tipeIzin) === -1) return { ok: false, error: 'Tipe izin tidak dikenal: ' + tipeIzin };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggalMulai) || !/^\d{4}-\d{2}-\d{2}$/.test(tanggalSelesai)) {
+    return { ok: false, error: 'Tanggal mulai/selesai wajib diisi.' };
+  }
+  if (tanggalSelesai < tanggalMulai) return { ok: false, error: 'Tanggal selesai tidak boleh sebelum tanggal mulai.' };
+  if (!alasan) return { ok: false, error: 'Alasan wajib diisi.' };
+
+  var karyawan = findKaryawan(id);
+  if (!karyawan) return { ok: false, error: 'Karyawan tidak ditemukan.' };
+  if (karyawan.status.toLowerCase() !== 'aktif') return { ok: false, error: 'Karyawan sudah tidak aktif. Hubungi admin.' };
+
+  var jumlahHari = hitungJumlahHari(tanggalMulai, tanggalSelesai);
+  if (jumlahHari > 31) return { ok: false, error: 'Rentang tanggal terlalu panjang (maks 31 hari per pengajuan).' };
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    // Cegah pengajuan tumpang tindih tanggal dgn pengajuan lain milik
+    // karyawan yang sama yang masih berjalan (PENDING atau sudah DISETUJUI).
+    var sheet = getSheet(SHEET_PENGAJUAN);
+    var rows = sheet.getDataRange().getValues();
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][1]).trim() !== id) continue;
+      var statusLain = String(rows[i][9]).trim();
+      if (statusLain !== 'PENDING' && statusLain !== 'DISETUJUI') continue;
+      var mLain = normalisasiTanggal(rows[i][4]);
+      var sLain = normalisasiTanggal(rows[i][5]);
+      if (tanggalMulai <= sLain && mLain <= tanggalSelesai) {
+        return { ok: false, error: 'Anda sudah punya pengajuan lain yang tumpang tindih tanggal (' + mLain + ' s/d ' + sLain + ', status ' + statusLain + ').' };
+      }
+    }
+
+    var lampiranUrl = '';
+    if (body.lampiran_base64) {
+      try {
+        lampiranUrl = simpanLampiran(body.lampiran_base64, body.lampiran_mime, (body.lampiran_nama || 'lampiran') + '.jpg');
+      } catch (errUpload) {
+        return { ok: false, error: 'Gagal unggah lampiran: ' + String(errUpload) };
+      }
+    }
+
+    var now = new Date();
+    var idPengajuan = 'PJ-' + Utilities.formatDate(now, TIMEZONE, 'yyyyMMdd-HHmmss') + '-' + id;
+    var diajukanPada = Utilities.formatDate(now, TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+    sheet.appendRow([
+      idPengajuan, id, karyawan.nama, tipeIzin, tanggalMulai, tanggalSelesai,
+      jumlahHari, alasan, lampiranUrl, 'PENDING', diajukanPada, '', '', ''
+    ]);
+    return { ok: true, id_pengajuan: idPengajuan, jumlah_hari: jumlahHari };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function handleGetPengajuanSaya(idKaryawan) {
+  var id = String(idKaryawan || '').trim();
+  if (!id) return { ok: false, error: 'id_karyawan wajib diisi.' };
+  var rows = getSheet(SHEET_PENGAJUAN).getDataRange().getValues();
+  var hasil = [];
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][1]).trim() !== id) continue;
+    hasil.push(pengajuanDariBaris(rows[i]));
+  }
+  hasil.sort(function (a, b) { return a.diajukan_pada < b.diajukan_pada ? 1 : -1; });
+  return { ok: true, pengajuan: hasil };
+}
+
+function handleGetAntreanPengajuan(actorId) {
+  var cek = requireIzin(String(actorId || '').trim(), 'izin_lihat_pengajuan');
+  if (!cek.ok) return cek;
+  var rows = getSheet(SHEET_PENGAJUAN).getDataRange().getValues();
+  var hasil = [];
+  for (var i = 1; i < rows.length; i++) {
+    var p = pengajuanDariBaris(rows[i]);
+    if (p.status !== 'PENDING') continue;
+    hasil.push(p);
+  }
+  hasil.sort(function (a, b) { return a.diajukan_pada < b.diajukan_pada ? -1 : 1; });
+  return { ok: true, antrean: hasil, bisa_putuskan: cek.admin.role === 'OWNER' || !!cek.admin.izin_approve_pengajuan };
+}
+
+function handlePutuskanPengajuan(body) {
+  var actorId = String(body.actor_id_admin || '').trim();
+  var cek = requireIzin(actorId, 'izin_approve_pengajuan');
+  if (!cek.ok) return cek;
+
+  var idPengajuan = String(body.id_pengajuan || '').trim();
+  var keputusan = String(body.keputusan || '').trim().toUpperCase();
+  var catatan = String(body.catatan_admin || '').trim();
+  if (['DISETUJUI', 'DITOLAK'].indexOf(keputusan) === -1) return { ok: false, error: 'Keputusan harus DISETUJUI atau DITOLAK.' };
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var sheet = getSheet(SHEET_PENGAJUAN);
+    var rows = sheet.getDataRange().getValues();
+    var rowIdx = -1, data = null;
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][0]).trim() === idPengajuan) { rowIdx = i + 1; data = rows[i]; break; }
+    }
+    if (rowIdx === -1) return { ok: false, error: 'Pengajuan tidak ditemukan.' };
+    var statusSekarang = String(data[9]).trim();
+    if (statusSekarang !== 'PENDING') return { ok: false, error: 'Pengajuan ini sudah diputuskan sebelumnya (' + statusSekarang + ').' };
+
+    var now = new Date();
+    var waktuKeputusan = Utilities.formatDate(now, TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+    sheet.getRange(rowIdx, 10).setValue(keputusan);
+    sheet.getRange(rowIdx, 12).setValue(cek.admin.nama);
+    sheet.getRange(rowIdx, 13).setValue(waktuKeputusan);
+    sheet.getRange(rowIdx, 14).setValue(catatan);
+
+    var tanggalDitulis = [];
+    var tanggalDilewati = [];
+    if (keputusan === 'DISETUJUI') {
+      var idK = String(data[1]).trim();
+      var nama = String(data[2]).trim();
+      var tipeIzin = String(data[3]).trim().toUpperCase();
+      var tanggalList = daftarTanggalDalamRentang(normalisasiTanggal(data[4]), normalisasiTanggal(data[5]));
+      for (var t = 0; t < tanggalList.length; t++) {
+        var r = tulisAbsenTidakHadir(idK, nama, tanggalList[t], tipeIzin, 'Disetujui via pengajuan ' + idPengajuan);
+        if (r.ok && !r.sudahAda) tanggalDitulis.push(tanggalList[t]);
+        else if (!r.ok) tanggalDilewati.push(tanggalList[t] + ' (' + r.alasan + ')');
+      }
+    }
+    return { ok: true, status: keputusan, tanggal_ditulis: tanggalDitulis, tanggal_dilewati: tanggalDilewati };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ===================== HELPER =====================
@@ -859,31 +1095,66 @@ function setupSheet() {
 
   if (!ss.getSheetByName(SHEET_ADMIN)) {
     var ad = ss.insertSheet(SHEET_ADMIN);
-    ad.getRange(1, 1, 1, 9)
+    ad.getRange(1, 1, 1, 10)
       .setValues([[
         'id_admin', 'nama', 'role', 'pin_hash', 'status',
         'izin_approve_pengajuan', 'izin_verifikasi_lembur', 'izin_lihat_rekap_gaji',
-        'tanggal_daftar'
+        'tanggal_daftar', 'izin_lihat_pengajuan'
       ]])
       .setFontWeight('bold');
     var todayAdmin = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd');
     // 3 akun awal sesuai role yang sudah disepakati. pin_hash kosong → tiap
     // orang buat PIN sendiri saat login pertama kali (sama pola dgn Karyawan).
     // izin_* adalah DEFAULT AWAL saja — Mas Abim (role OWNER) bisa ubah kapan
-    // saja lewat dashboard "Kelola Akun Admin" tanpa perlu developer.
-    ad.getRange(2, 1, 3, 9).setValues([
-      ['ADM001', 'Mas Abim', 'OWNER', '', 'Aktif', true, true, true, todayAdmin],
-      ['ADM002', 'Mbak Tika', 'REKAP', '', 'Aktif', false, true, true, todayAdmin],
-      ['ADM003', 'Bu Lis', 'HR', '', 'Aktif', false, false, false, todayAdmin]
+    // saja lewat dashboard "Kelola Akun Admin" tanpa perlu developer. Bu Lis
+    // (HR) default dapat izin_lihat_pengajuan=true (bisa lihat & baca antrean
+    // Cuti/Izin) tapi izin_approve_pengajuan=false (TIDAK bisa memutuskan) —
+    // sesuai keputusan bisnis: approve/reject cuma Mas Abim.
+    ad.getRange(2, 1, 3, 10).setValues([
+      ['ADM001', 'Mas Abim', 'OWNER', '', 'Aktif', true, true, true, todayAdmin, true],
+      ['ADM002', 'Mbak Tika', 'REKAP', '', 'Aktif', false, true, true, todayAdmin, false],
+      ['ADM003', 'Bu Lis', 'HR', '', 'Aktif', false, false, false, todayAdmin, true]
     ]);
     ad.setFrozenRows(1);
+  } else {
+    // Migrasi: tab Admin yang sudah ada dari versi sebelum fitur Pengajuan
+    // belum punya kolom izin_lihat_pengajuan — tambahkan tanpa mengubah data
+    // lain. Nilai default kosong (false) untuk semua baris yang sudah ada —
+    // Owner perlu nyalakan manual utk Bu Lis lewat "Kelola Akun Admin" kalau
+    // mau dia bisa lihat antrean Pengajuan.
+    var adminLama = ss.getSheetByName(SHEET_ADMIN);
+    var headerAdminLama = adminLama.getRange(1, 1, 1, Math.max(adminLama.getLastColumn(), 1)).getValues()[0];
+    if (headerAdminLama.indexOf('izin_lihat_pengajuan') === -1) {
+      var kolomBaru = adminLama.getLastColumn() + 1;
+      adminLama.getRange(1, kolomBaru).setValue('izin_lihat_pengajuan').setFontWeight('bold');
+    }
+  }
+
+  if (!ss.getSheetByName(SHEET_PENGAJUAN)) {
+    var p = ss.insertSheet(SHEET_PENGAJUAN);
+    p.getRange(1, 1, 1, 14)
+      .setValues([[
+        'id_pengajuan', 'id_karyawan', 'nama', 'tipe_izin', 'tanggal_mulai', 'tanggal_selesai',
+        'jumlah_hari', 'alasan', 'lampiran_url', 'status', 'diajukan_pada',
+        'diputuskan_oleh', 'diputuskan_pada', 'catatan_admin'
+      ]])
+      .setFontWeight('bold');
+    p.getRange('E:F').setNumberFormat('@'); // tanggal_mulai/selesai sbg teks
+    // 1 baris contoh berstatus PENDING supaya begitu dashboard admin dibuka,
+    // tab "Pengajuan Cuti/Izin" langsung kelihatan isinya (bukan kosong).
+    var todayPengajuan = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+    p.getRange(2, 1, 1, 14).setValues([[
+      'PJ-CONTOH-001', 'OKT001', 'Test Rama', 'CUTI', '2026-08-05', '2026-08-07',
+      3, 'Pulang kampung (contoh data uji)', '', 'PENDING', todayPengajuan, '', '', ''
+    ]]);
+    p.setFrozenRows(1);
   }
 
   // Hapus tab default "Sheet1" kalau masih ada dan kosong
   var sheet1 = ss.getSheetByName('Sheet1');
-  if (sheet1 && sheet1.getLastRow() === 0 && ss.getSheets().length > 4) {
+  if (sheet1 && sheet1.getLastRow() === 0 && ss.getSheets().length > 5) {
     ss.deleteSheet(sheet1);
   }
 
-  Logger.log('Setup selesai. Tab Karyawan, Absensi, Config, Admin siap dipakai.');
+  Logger.log('Setup selesai. Tab Karyawan, Absensi, Config, Admin, Pengajuan siap dipakai.');
 }

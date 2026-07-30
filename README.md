@@ -4,19 +4,21 @@ Aplikasi absensi karyawan Omah Kebon (klien Ndalem AI Tech). PWA mobile-first + 
 
 **Fase saat ini: Fase A (build & testing internal)** — Sheet + Apps Script di akun Google Ndalem AI Tech, frontend di GitHub Pages akun Ndalem AI Tech. Migrasi ke akun klien (Fase B) dilakukan nanti setelah lolos testing.
 
-**Update 2026-07-30:** ditambah 2 fitur besar — tipe absen **Lembur** (Mulai/Selesai Lembur) dan **dashboard admin** (`/admin/`) dengan 3 role (Owner/HR/Rekap), termasuk verifikasi lembur dan rekap gaji dasar. Approval Cuti/Izin (form pengganti tombol Cuti/Off lama) **BELUM diaktifkan** — masih menunggu detail field dari form kertas yang sudah dipakai Mas Abim di lapangan. Tombol Cuti/Off di app karyawan untuk sementara masih berperilaku sama seperti sebelumnya (self-report langsung, tanpa approval).
+**Update 2026-07-30 (sore):** ditambah **Pengajuan Izin** — tombol Cuti/Off lama diganti form "Ajukan Izin" (Cuti/Sakit/Izin Biasa/Off) yang butuh **persetujuan Owner** sebelum tercatat resmi. Lihat bagian [Pengajuan Izin](#pengajuan-izin-cutisakitizin-biasaoff) di bawah. **Field form ini masih HIPOTESIS/tebakan** berdasar pola umum form cuti perusahaan — belum dicocokkan dengan form kertas asli yang dipakai Mas Abim di lapangan. Jangan anggap final sampai dibandingkan.
+
+**Update 2026-07-30 (siang):** ditambah tipe absen **Lembur** (Mulai/Selesai Lembur) dan **dashboard admin** (`/admin/`) dengan 3 role (Owner/HR/Rekap), termasuk verifikasi lembur dan rekap gaji dasar.
 
 ## Struktur Repo
 
 ```
-├── index.html               # PWA karyawan — 3 layar (setup device, absen, kalender riwayat)
+├── index.html               # PWA karyawan — 5 layar (setup, absen, ajukan izin, pengajuan saya, kalender)
 ├── css/style.css
 ├── js/config.js              # ← URL Web App Apps Script diisi di sini (dipakai app karyawan & admin)
 ├── js/app.js
 ├── manifest.json             # supaya app karyawan bisa "Tambahkan ke Layar Utama"
 ├── sw.js                     # service worker (cache app shell KARYAWAN saja, admin tidak)
 ├── icons/
-├── admin/                    # Dashboard admin (baru, 2026-07-30) — TIDAK offline/PWA, butuh internet
+├── admin/                    # Dashboard admin — TIDAK offline/PWA, butuh internet
 │   ├── index.html
 │   ├── css/admin.css
 │   └── js/admin.js
@@ -34,8 +36,9 @@ Aplikasi absensi karyawan Omah Kebon (klien Ndalem AI Tech). PWA mobile-first + 
 2. **Buka editor Apps Script** dari dalam Sheet itu: menu **Extensions → Apps Script**.
 3. Hapus isi `Code.gs` bawaan, lalu **paste seluruh isi [`apps-script/Code.gs`](apps-script/Code.gs)** dari repo ini. Simpan (Ctrl+S).
 4. (Disarankan) Set timezone project: ikon gear ⚙ **Project Settings** → Time zone → `(GMT+07:00) Jakarta`.
-5. **Jalankan `setupSheet()`**: di toolbar editor pilih fungsi `setupSheet` → klik **Run** → izinkan otorisasi yang diminta (akses Spreadsheet). Ini otomatis membuat 4 tab (`Karyawan`, `Absensi`, `Config`, `Admin`) lengkap dengan header dan data contoh.
-   - **Kalau Sheet-mu sudah pernah setup sebelum 2026-07-30** (masih 3 tab lama): tetap jalankan `setupSheet()` ulang — ini AMAN, idempotent. Tab `Admin` baru akan dibuat, dan tab `Absensi` lama otomatis dimigrasi (ditambah 3 kolom `status_verifikasi`/`diverifikasi_oleh`/`waktu_verifikasi` di akhir) TANPA mengubah data yang sudah ada.
+5. **Jalankan `setupSheet()`**: di toolbar editor pilih fungsi `setupSheet` → klik **Run** → izinkan otorisasi yang diminta (akses Spreadsheet **dan Drive** — Drive dipakai untuk simpan lampiran foto pengajuan izin). Ini otomatis membuat 5 tab (`Karyawan`, `Absensi`, `Config`, `Admin`, `Pengajuan`) lengkap dengan header dan data contoh.
+   - **Kalau Sheet-mu sudah pernah setup sebelumnya** (masih versi lama): tetap jalankan `setupSheet()` ulang — ini AMAN, idempotent. Tab yang belum ada (`Admin`, `Pengajuan`) akan dibuat, dan kolom yang belum ada di tab lama (`status_verifikasi` dkk di `Absensi`, `izin_lihat_pengajuan` di `Admin`) otomatis ditambahkan TANPA mengubah data yang sudah ada.
+   - **Kalau Sheet-mu sudah punya tab `Admin` dari update Lembur (2026-07-30 siang)**: setelah jalankan `setupSheet()` ulang, buka dashboard admin → login sebagai Mas Abim → tab **Kelola Akun Admin** → centang **"Lihat Pengajuan"** untuk Bu Lis (default kosong setelah migrasi, harus dinyalakan manual sekali).
 6. **Deploy sebagai Web App**: tombol **Deploy → New deployment** → tipe **Web app** →
    - Description: bebas (misal `v1`)
    - Execute as: **Me**
@@ -58,23 +61,44 @@ Setiap push ke `main` otomatis ter-deploy (tunggu ± 1 menit). Kalau ada perubah
 ## Alur Pakai — App Karyawan
 
 1. Buka URL app di HP → pilih nama → buat PIN 4 digit (2x) → masuk layar absen.
-2. Layar absen menampilkan **6 tombol**, dikelompokkan 3 baris: **MASUK** (hijau) / **PULANG** (kuning), **MULAI LEMBUR** / **SELESAI LEMBUR** (teal), **CUTI** (biru) / **OFF** (ungu). Warna ini konsisten di modal konfirmasi, layar sukses, dan kalender.
-3. Tekan **MASUK** → izinkan lokasi → layar sukses hijau. Tombol PULANG otomatis aktif, CUTI & OFF nonaktif (satu hari cuma satu "jalur": hadir kerja ATAU cuti/off).
+2. Layar absen menampilkan **4 tombol** (MASUK hijau / PULANG kuning / MULAI LEMBUR & SELESAI LEMBUR teal) plus **1 tombol "Ajukan Izin"** terpisah di bawahnya. Warna tombol konsisten di modal konfirmasi, layar sukses, dan kalender.
+3. Tekan **MASUK** → izinkan lokasi → layar sukses hijau. Tombol PULANG otomatis aktif.
 4. Tekan **PULANG** → hari itu "lengkap". MASUK & PULANG terkunci sampai hari berikutnya.
-5. **MULAI LEMBUR** / **SELESAI LEMBUR** (fitur baru): sama pola dgn Masuk/Pulang — butuh lokasi GPS, Selesai Lembur baru bisa ditekan setelah Mulai Lembur tercatat hari itu. **Lembur BOLEH terjadi di hari yang sama dengan Masuk/Pulang** (tidak saling mengunci) — tapi TETAP terkunci kalau hari itu sudah CUTI/OFF, dan sebaliknya. Durasi lembur otomatis dihitung dari selisih jam Mulai–Selesai, tapi baru **resmi masuk rekap gaji setelah diverifikasi admin** lewat dashboard (lihat bagian Dashboard Admin di bawah) — ini untuk memastikan jam lembur yang diklaim akurat sebelum dihitung sebagai biaya tambahan.
-6. **CUTI** dan **OFF** tidak butuh lokasi GPS — untuk sementara masih langsung tercatat tanpa approval (lihat catatan di atas soal Form Izin yang belum aktif).
-7. Cek tab `Absensi` di Sheet: baris baru dengan `tipe_absen` (MASUK/PULANG/MULAI_LEMBUR/SELESAI_LEMBUR/CUTI/OFF). Untuk baris Lembur, kolom `status_verifikasi` mulai dari `BELUM_DIVERIFIKASI` sampai admin verifikasi lewat dashboard.
-8. Tab **Riwayat**: kalender bulanan berwarna sesuai tipe dominan hari itu. Prioritas warna: Cuti/Off > Pulang > Masuk > Lembur (Lembur cuma jadi warna dominan kalau hari itu tidak ada Masuk/Pulang sama sekali).
+5. **MULAI LEMBUR** / **SELESAI LEMBUR**: sama pola dgn Masuk/Pulang — butuh lokasi GPS, Selesai Lembur baru bisa ditekan setelah Mulai Lembur tercatat hari itu. **Lembur BOLEH terjadi di hari yang sama dengan Masuk/Pulang** — tapi TETAP terkunci kalau hari itu sudah ada izin yang DISETUJUI. Durasi lembur otomatis dihitung, tapi baru **resmi masuk rekap gaji setelah diverifikasi admin**.
+6. Kalau hari ini ada pengajuan izin yang **sudah disetujui** admin, keempat tombol di atas otomatis terkunci (tidak bisa absen di hari izin).
+7. Cek tab `Absensi` di Sheet: baris baru dengan `tipe_absen` (MASUK/PULANG/MULAI_LEMBUR/SELESAI_LEMBUR/CUTI/SAKIT/IZIN_BIASA/OFF — 4 tipe terakhir cuma muncul setelah pengajuan disetujui admin, lihat bagian Pengajuan Izin).
+8. Tab **Riwayat**: kalender bulanan berwarna sesuai tipe dominan hari itu. Prioritas warna: Cuti/Sakit/Izin/Off > Pulang > Masuk > Lembur.
 
-## Dashboard Admin (`/admin/`) — baru 2026-07-30
+## Pengajuan Izin (Cuti/Sakit/Izin Biasa/Off)
+
+**Ganti tombol Cuti/Off lama** (self-report langsung) — sekarang lewat form + approval, sesuai keputusan brainstorm 2026-07-30.
+
+**Alur karyawan:**
+1. Tekan **"Ajukan Izin"** di layar absen → pilih jenis (Cuti/Sakit/Izin Biasa/Off) → isi tanggal mulai & selesai (boleh rentang beberapa hari, satu kali submit) → isi alasan → opsional lampirkan foto (di-resize otomatis di HP sebelum dikirim, maks ~1000px).
+2. Kirim → status **PENDING**, langsung diarahkan ke layar **"Pengajuan Saya"** yang menampilkan riwayat semua pengajuan + status (Menunggu/Disetujui/Ditolak) + catatan admin kalau ada.
+3. Kalau **disetujui**, sistem otomatis menulis baris di tab `Absensi` untuk SETIAP tanggal dalam rentang (jadi langsung muncul di kalender & otomatis mengunci Masuk/Pulang/Lembur di tanggal itu — pakai ulang mesin saling-eksklusif yang sama dengan absen manual).
+
+**Alur admin (tab "Pengajuan Cuti/Izin" di dashboard):**
+- **Owner** (Mas Abim): satu-satunya yang bisa **Setujui/Tolak**, dengan catatan opsional.
+- **HR** (Bu Lis): defaultnya bisa **lihat** antrean + baca lampiran, tapi TIDAK ada tombol putuskan (tab menampilkan pesan "Lihat saja").
+- **Rekap** (Mbak Tika): default TIDAK bisa lihat tab ini sama sekali (tidak involve di proses izin).
+- Kedua izin ini (`izin_lihat_pengajuan` utk lihat, `izin_approve_pengajuan` utk memutuskan) **bisa diubah Owner kapan saja** lewat "Kelola Akun Admin" — termasuk kalau nanti Mas Abim mau delegasikan wewenang approve ke orang lain.
+
+**Field form (di tab `Pengajuan`, Sheet):** `id_pengajuan, id_karyawan, nama, tipe_izin, tanggal_mulai, tanggal_selesai, jumlah_hari, alasan, lampiran_url, status, diajukan_pada, diputuskan_oleh, diputuskan_pada, catatan_admin`.
+
+> ⚠️ **Field ini masih HIPOTESIS** — disusun dari pola umum form cuti perusahaan Indonesia, BUKAN hasil menyalin form kertas Mas Abim yang sudah berjalan. Yang sengaja belum dimasukkan (nunggu perbandingan): sisa/kuota cuti tahunan, kontak darurat, pengganti tugas/handover selama cuti. Begitu Rama dapat foto form kertas aslinya, bandingkan dan sesuaikan skema kolom di atas (Code.gs `handleAjukanIzin`/`HEADER_PENGAJUAN` + `mockBackend.js` yang selaras + form di `index.html`/`app.js`).
+
+**Lampiran foto** disimpan di folder Google Drive akun yang menjalankan Apps Script, bernama **"Lampiran Izin - Absensi Omah Kebon"** (dibuat otomatis saat upload pertama), dengan sharing "siapa saja yang punya link bisa lihat" — link-nya disimpan di kolom `lampiran_url`.
+
+## Dashboard Admin (`/admin/`)
 
 Dipakai dari browser biasa (laptop/HP), 3 role:
 
-- **Owner** (Mas Abim): akses penuh — verifikasi lembur, lihat rekap gaji, dan **satu-satunya** yang bisa membuka tab "Kelola Akun Admin".
-- **HR** (Bu Lis): default cuma bisa lihat tab "Pengajuan Cuti/Izin" (placeholder, belum aktif) dan ganti PIN sendiri.
+- **Owner** (Mas Abim): akses penuh — verifikasi lembur, putuskan pengajuan izin, lihat rekap gaji, dan **satu-satunya** yang bisa membuka tab "Kelola Akun Admin".
+- **HR** (Bu Lis): default bisa lihat tab "Pengajuan Cuti/Izin" (lihat-saja) dan ganti PIN sendiri.
 - **Rekap** (Mbak Tika): default bisa verifikasi lembur + lihat rekap gaji.
 
-Izin tiap role (kecuali Owner) **bisa diubah kapan saja oleh Owner** lewat tab "Kelola Akun Admin" — ceklis per kapabilitas (approve pengajuan / verifikasi lembur / lihat rekap gaji), tanpa perlu developer ubah kode.
+Izin tiap role (kecuali Owner) **bisa diubah kapan saja oleh Owner** lewat tab "Kelola Akun Admin" — ceklis per kapabilitas (lihat pengajuan / approve pengajuan / verifikasi lembur / lihat rekap gaji), tanpa perlu developer ubah kode.
 
 **Login:** pilih nama dari dropdown → PIN 4 digit. Login pertama kali (pin_hash masih kosong di tab `Admin`) otomatis jadi "buat PIN baru". Semua admin bisa ganti PIN sendiri kapan saja lewat tab "Ganti PIN Saya" — tidak perlu minta developer.
 
@@ -82,7 +106,9 @@ Izin tiap role (kecuali Owner) **bisa diubah kapan saja oleh Owner** lewat tab "
 
 **Verifikasi Lembur:** tab ini cuma menampilkan sesi lembur yang SUDAH lengkap (Mulai + Selesai tercatat) dan belum diverifikasi. Klik "Verifikasi" untuk menandai sah — setelah itu baru ikut terhitung di Rekap Gaji.
 
-**Rekap Gaji:** pilih bulan, tampil per karyawan: hari Masuk, hari Lengkap (Masuk+Pulang), dan total jam Lembur terverifikasi. **Belum termasuk Cuti/Izin** — menunggu skema Form Izin final.
+**Pengajuan Cuti/Izin:** lihat bagian [Pengajuan Izin](#pengajuan-izin-cutisakitizin-biasaoff) di atas.
+
+**Rekap Gaji:** pilih bulan, tampil per karyawan: hari Masuk, hari Lengkap (Masuk+Pulang), dan total jam Lembur terverifikasi. **Belum termasuk hari Cuti/Sakit/Izin/Off** — bisa ditambahkan kalau dibutuhkan, setelah field final disepakati.
 
 ## Kelola Karyawan (via Sheet langsung)
 
@@ -102,9 +128,9 @@ Satu alur untuk semua kasus (tidak berubah dari sebelumnya):
 
 Folder `tests/` berisi test otomatis yang jalan di Node, bukan bagian dari app yang di-deploy:
 
-- `mockBackend.js` — port manual `apps-script/Code.gs` ke Node (Apps Script API seperti `SpreadsheetApp` tidak ada di Node). **Kalau `Code.gs` diubah, `mockBackend.js` WAJIB diupdate juga** supaya test tetap merepresentasikan backend asli.
+- `mockBackend.js` — port manual `apps-script/Code.gs` ke Node (Apps Script API seperti `SpreadsheetApp`/`DriveApp` tidak ada di Node — upload lampiran Drive DI-MOCK, cukup utk menguji alur bukan penyimpanan file sungguhan). **Kalau `Code.gs` diubah, `mockBackend.js` WAJIB diupdate juga** supaya test tetap merepresentasikan backend asli.
 - `backend.test.js` — test logic murni (tanpa DOM), jalankan: `node tests/backend.test.js`
 - `e2e-karyawan.test.js` — test end-to-end app karyawan pakai jsdom, jalankan: `node tests/e2e-karyawan.test.js` (butuh `npm install jsdom` sekali di folder ini)
 - `e2e-admin.test.js` — test end-to-end dashboard admin pakai jsdom, jalankan: `node tests/e2e-admin.test.js`
 
-Status per 2026-07-30: 38 test backend + 12 test e2e karyawan + 11 test e2e admin — **61/61 PASS**.
+Status per 2026-07-30 (update Pengajuan Izin): 42 test backend + 14 test e2e karyawan + 14 test e2e admin — **70/70 PASS**.

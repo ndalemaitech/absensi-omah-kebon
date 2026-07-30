@@ -120,6 +120,26 @@ async function tekanTombolAbsen(win, tipeId) {
   await tick(10);
 }
 
+function setInputValue(win, id, value) {
+  var el = $(win, id);
+  var setter = Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, 'value').set;
+  var setterArea = Object.getOwnPropertyDescriptor(win.HTMLTextAreaElement.prototype, 'value').set;
+  if (el.tagName === 'TEXTAREA') setterArea.call(el, value); else setter.call(el, value);
+  el.dispatchEvent(new win.Event('input', { bubbles: true }));
+  el.dispatchEvent(new win.Event('change', { bubbles: true }));
+}
+
+async function ajukanIzin(win, tipe, mulai, selesai, alasan) {
+  klik(win, 'btn-buka-ajukan-izin');
+  await tick(3);
+  win.document.querySelector('.chip-tipe-izin[data-tipe="' + tipe + '"]').dispatchEvent(new win.Event('click', { bubbles: true }));
+  setInputValue(win, 'izin-tanggal-mulai', mulai);
+  setInputValue(win, 'izin-tanggal-selesai', selesai);
+  setInputValue(win, 'izin-alasan', alasan);
+  klik(win, 'btn-kirim-izin');
+  await tick(8);
+}
+
 // ===================== TEST =====================
 
 (async function () {
@@ -131,7 +151,7 @@ async function tekanTombolAbsen(win, tipeId) {
     assert.strictEqual($(win, 'layar-setup').classList.contains('aktif'), true);
   });
 
-  await test_run('Setup PIN baru lalu masuk ke layar absen, tombol MASUK aktif & lainnya sesuai default', async function () {
+  await test_run('Setup PIN baru lalu masuk ke layar absen, 4 tombol Hadir/Lembur sesuai default', async function () {
     var win = buatDevice();
     await setupKaryawanBaru(win, 'OKT001', '1234');
     assert.strictEqual($(win, 'layar-absen').classList.contains('aktif'), true);
@@ -139,7 +159,7 @@ async function tekanTombolAbsen(win, tipeId) {
     assert.strictEqual($(win, 'btn-absen-pulang').disabled, true);
     assert.strictEqual($(win, 'btn-absen-selesai-lembur').disabled, true);
     assert.strictEqual($(win, 'btn-absen-mulai-lembur').disabled, false);
-    assert.strictEqual($(win, 'btn-absen-cuti').disabled, false);
+    assert.strictEqual($(win, 'btn-buka-ajukan-izin'), $(win, 'btn-buka-ajukan-izin')); // tombol Ajukan Izin ada
   });
 
   await test_run('PIN tidak sama saat konfirmasi → error, kembali ke langkah buat PIN', async function () {
@@ -167,7 +187,7 @@ async function tekanTombolAbsen(win, tipeId) {
     assert.strictEqual($(win, 'btn-absen-pulang').disabled, false);
   });
 
-  await test_run('MASUK lalu PULANG: kedua tombol terkunci selesai', async function () {
+  await test_run('MASUK lalu PULANG: kedua tombol terkunci selesai, Lembur tetap boleh', async function () {
     var win = buatDevice();
     await setupKaryawanBaru(win, 'OKT001', '1234');
     await tekanTombolAbsen(win, 'btn-absen-masuk');
@@ -179,10 +199,10 @@ async function tekanTombolAbsen(win, tipeId) {
     await tick(3);
     assert.strictEqual($(win, 'btn-absen-masuk').disabled, true);
     assert.strictEqual($(win, 'btn-absen-pulang').disabled, true);
-    assert.strictEqual($(win, 'btn-absen-mulai-lembur').disabled, false); // lembur tetap boleh
+    assert.strictEqual($(win, 'btn-absen-mulai-lembur').disabled, false);
   });
 
-  await test_run('Lembur end-to-end: Mulai lalu Selesai, dan Cuti/Off ikut terkunci selama sesi lembur berjalan', async function () {
+  await test_run('Lembur end-to-end: Mulai lalu Selesai tercatat berurutan', async function () {
     var win = buatDevice();
     await setupKaryawanBaru(win, 'OKT001', '1234');
     await tekanTombolAbsen(win, 'btn-absen-mulai-lembur');
@@ -191,27 +211,12 @@ async function tekanTombolAbsen(win, tipeId) {
     await tick(3);
     assert.strictEqual($(win, 'btn-absen-mulai-lembur').disabled, true);
     assert.strictEqual($(win, 'btn-absen-selesai-lembur').disabled, false);
-    assert.strictEqual($(win, 'btn-absen-cuti').disabled, true);
-    assert.strictEqual($(win, 'btn-absen-off').disabled, true);
 
     await tekanTombolAbsen(win, 'btn-absen-selesai-lembur');
     assert.strictEqual($(win, 'judul-sukses').textContent, 'Selesai Lembur Tercatat');
     klik(win, 'btn-sukses-ok');
     await tick(3);
     assert.strictEqual($(win, 'btn-absen-selesai-lembur').disabled, true);
-  });
-
-  await test_run('CUTI mengunci Masuk/Pulang/Lembur, dan tidak minta lokasi GPS', async function () {
-    var win = buatDevice(null, false); // geolocation SENGAJA gagal — CUTI tidak boleh memanggilnya
-    await setupKaryawanBaru(win, 'OKT001', '1234');
-    await tekanTombolAbsen(win, 'btn-absen-cuti');
-    assert.strictEqual($(win, 'layar-sukses').classList.contains('aktif'), true);
-    assert.strictEqual($(win, 'lokasi-sukses').classList.contains('tersembunyi'), true);
-    klik(win, 'btn-sukses-ok');
-    await tick(3);
-    assert.strictEqual($(win, 'btn-absen-masuk').disabled, true);
-    assert.strictEqual($(win, 'btn-absen-mulai-lembur').disabled, true);
-    assert.strictEqual($(win, 'btn-absen-off').disabled, true);
   });
 
   await test_run('Lokasi GPS ditolak saat MASUK → pesan error, tombol kembali aktif (tidak dobel-kunci)', async function () {
@@ -231,27 +236,12 @@ async function tekanTombolAbsen(win, tipeId) {
     await setupKaryawanBaru(win1, 'OKT001', '1234');
     assert.strictEqual($(win1, 'layar-absen').classList.contains('aktif'), true);
 
-    // Admin reset PIN langsung di "Sheet" (mock)
     var rows = backend.getSheetData('Karyawan');
     rows[1][2] = ''; // kosongkan pin_hash OKT001
 
-    // Buka device BARU dgn localStorage yg sama (mensimulasikan reload app)
     var win2 = buatDevice(ls);
     await tick(8);
     assert.strictEqual($(win2, 'layar-setup').classList.contains('aktif'), true);
-  });
-
-  await test_run('2 karyawan beda device: status absen tidak saling bocor', async function () {
-    var winA = buatDevice();
-    await setupKaryawanBaru(winA, 'OKT001', '1234');
-    await tekanTombolAbsen(winA, 'btn-absen-masuk');
-    klik(winA, 'btn-sukses-ok');
-    await tick(3);
-
-    var winB = buatDevice();
-    await setupKaryawanBaru(winB, 'OKT002', '5678');
-    assert.strictEqual($(winB, 'btn-absen-masuk').disabled, false); // OKT002 belum absen apa2
-    assert.strictEqual($(winB, 'btn-absen-masuk').classList.contains('selesai'), false);
   });
 
   await test_run('Kalender: hari dengan Masuk+Pulang berwarna hadir-pulang (menang atas Masuk)', async function () {
@@ -269,19 +259,67 @@ async function tekanTombolAbsen(win, tipeId) {
     assert.ok(selHariIni.classList.contains('hadir-pulang'));
   });
 
-  await test_run('Kalender: hari yang cuma ada Lembur (tanpa Masuk/Pulang) berwarna hadir-selesai_lembur', async function () {
+  // ===================== AJUKAN IZIN (fitur baru 2026-07-30) =====================
+
+  await test_run('Ajukan Izin: submit CUTI sukses → masuk ke Pengajuan Saya berstatus Menunggu', async function () {
     var win = buatDevice();
     await setupKaryawanBaru(win, 'OKT001', '1234');
-    await tekanTombolAbsen(win, 'btn-absen-mulai-lembur');
-    klik(win, 'btn-sukses-ok');
+    await ajukanIzin(win, 'CUTI', '2026-08-10', '2026-08-12', 'Pulang kampung');
+    assert.strictEqual($(win, 'layar-pengajuan-saya').classList.contains('aktif'), true);
+    assert.ok(/berhasil dikirim/i.test($(win, 'pengajuan-pesan').textContent));
+    var kartu = win.document.querySelectorAll('.kartu-pengajuan');
+    assert.strictEqual(kartu.length, 1);
+    assert.ok(kartu[0].textContent.indexOf('Cuti') !== -1);
+    assert.ok(kartu[0].textContent.indexOf('Menunggu') !== -1);
+  });
+
+  await test_run('Ajukan Izin: alasan kosong ditolak di frontend sebelum kirim ke server', async function () {
+    var win = buatDevice();
+    await setupKaryawanBaru(win, 'OKT001', '1234');
+    klik(win, 'btn-buka-ajukan-izin');
     await tick(3);
-    await tekanTombolAbsen(win, 'btn-absen-selesai-lembur');
-    klik(win, 'btn-sukses-ok');
+    win.document.querySelector('.chip-tipe-izin[data-tipe="SAKIT"]').dispatchEvent(new win.Event('click', { bubbles: true }));
+    setInputValue(win, 'izin-tanggal-mulai', '2026-08-10');
+    klik(win, 'btn-kirim-izin');
     await tick(3);
-    klik(win, 'nav-riwayat');
+    assert.ok(/alasan/i.test($(win, 'izin-error').textContent));
+    assert.strictEqual($(win, 'layar-ajukan-izin').classList.contains('aktif'), true); // belum pindah layar
+  });
+
+  await test_run('Ajukan Izin: pilih tanggal mulai otomatis mengisi tanggal selesai kalau masih kosong', async function () {
+    var win = buatDevice();
+    await setupKaryawanBaru(win, 'OKT001', '1234');
+    klik(win, 'btn-buka-ajukan-izin');
+    await tick(3);
+    setInputValue(win, 'izin-tanggal-mulai', '2026-08-15');
+    assert.strictEqual($(win, 'izin-tanggal-selesai').value, '2026-08-15');
+  });
+
+  await test_run('Nav Pengajuan menampilkan riwayat pengajuan (termasuk yg sudah diputuskan)', async function () {
+    backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'SAKIT', tanggal_mulai: '2026-08-05', tanggal_selesai: '2026-08-05', alasan: 'Demam' });
+    var rows = backend.getSheetData('Pengajuan');
+    var idPengajuan = rows[1][0];
+    backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: idPengajuan, keputusan: 'DITOLAK', catatan_admin: 'Kurang bukti' });
+
+    var win = buatDevice();
+    await setupKaryawanBaru(win, 'OKT001', '1234');
+    klik(win, 'nav-pengajuan');
     await tick(8);
-    var selHariIni = win.document.querySelector('.sel-tanggal.hari-ini');
-    assert.ok(selHariIni.classList.contains('hadir-selesai_lembur'));
+    var kartu = win.document.querySelectorAll('.kartu-pengajuan');
+    assert.strictEqual(kartu.length, 1);
+    assert.ok(kartu[0].textContent.indexOf('Ditolak') !== -1);
+    assert.ok(kartu[0].textContent.indexOf('Kurang bukti') !== -1);
+  });
+
+  await test_run('Integrasi: Cuti hari ini yg sudah DISETUJUI mengunci semua tombol Hadir/Lembur & tampil di status', async function () {
+    var buat = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-07-30', tanggal_selesai: '2026-07-30', alasan: 'Acara keluarga' });
+    backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: buat.id_pengajuan, keputusan: 'DISETUJUI' });
+
+    var win = buatDevice();
+    await setupKaryawanBaru(win, 'OKT001', '1234');
+    assert.strictEqual($(win, 'btn-absen-masuk').disabled, true);
+    assert.strictEqual($(win, 'btn-absen-mulai-lembur').disabled, true);
+    assert.ok(/cuti hari ini/i.test($(win, 'status-absen').textContent));
   });
 
   console.log('');

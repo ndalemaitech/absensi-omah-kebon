@@ -6,9 +6,12 @@
  * Code.gs berubah — lihat komentar "// SELARAS Code.gs:" di tiap fungsi.
  *
  * TIDAK menjalankan Code.gs secara langsung (Apps Script API seperti
- * SpreadsheetApp/Utilities/LockService tidak ada di Node), jadi ini adalah
- * PORT manual, bukan eksekusi asli — risikonya bisa diverge kalau Code.gs
- * diubah tanpa mockBackend ikut diupdate. Wajib update dua-duanya bersamaan.
+ * SpreadsheetApp/Utilities/LockService/DriveApp tidak ada di Node), jadi ini
+ * adalah PORT manual, bukan eksekusi asli — risikonya bisa diverge kalau
+ * Code.gs diubah tanpa mockBackend ikut diupdate. Wajib update dua-duanya
+ * bersamaan. Upload lampiran Drive DI-MOCK (lihat simpanLampiran) karena Drive
+ * sungguhan tidak ada di Node — cukup untuk menguji ALUR, bukan penyimpanan
+ * file sungguhan.
  */
 
 'use strict';
@@ -23,30 +26,30 @@ function setNow(d) {
 }
 
 function formatTanggal(d) {
-  // yyyy-MM-dd di zona Asia/Jakarta
   var s = new Intl.DateTimeFormat('en-CA', {
     timeZone: TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit'
   }).format(d);
-  return s; // en-CA locale sudah format yyyy-MM-dd
+  return s;
 }
 
 function formatWaktu(d) {
   var s = new Intl.DateTimeFormat('en-GB', {
     timeZone: TIMEZONE, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
   }).format(d);
-  return s.replace(/‎/g, ''); // beberapa locale sisipkan LRM, buang
+  return s.replace(/‎/g, '');
 }
 
 function hashPin(idPemilik, pin) {
   return crypto.createHash('sha256').update(idPemilik + ':' + pin, 'utf8').digest('hex');
 }
 
-// ===================== STATE (mirip 4 tab Sheet) =====================
+// ===================== STATE (mirip 5 tab Sheet) =====================
 
 var HEADER_KARYAWAN = ['id_karyawan', 'nama', 'pin_hash', 'status', 'tanggal_daftar'];
 var HEADER_ABSENSI = ['id_absen', 'id_karyawan', 'nama', 'tanggal', 'waktu', 'tipe_absen', 'latitude', 'longitude', 'jarak_dari_kantor_m', 'status_lokasi', 'catatan', 'status_verifikasi', 'diverifikasi_oleh', 'waktu_verifikasi'];
 var HEADER_CONFIG = ['key', 'value', 'keterangan'];
-var HEADER_ADMIN = ['id_admin', 'nama', 'role', 'pin_hash', 'status', 'izin_approve_pengajuan', 'izin_verifikasi_lembur', 'izin_lihat_rekap_gaji', 'tanggal_daftar'];
+var HEADER_ADMIN = ['id_admin', 'nama', 'role', 'pin_hash', 'status', 'izin_approve_pengajuan', 'izin_verifikasi_lembur', 'izin_lihat_rekap_gaji', 'tanggal_daftar', 'izin_lihat_pengajuan'];
+var HEADER_PENGAJUAN = ['id_pengajuan', 'id_karyawan', 'nama', 'tipe_izin', 'tanggal_mulai', 'tanggal_selesai', 'jumlah_hari', 'alasan', 'lampiran_url', 'status', 'diajukan_pada', 'diputuskan_oleh', 'diputuskan_pada', 'catatan_admin'];
 
 var DEFAULT_CONFIG = {
   lokasi_kantor_lat: -7.3234422729931525,
@@ -73,10 +76,11 @@ function resetState() {
     ],
     Admin: [
       HEADER_ADMIN.slice(),
-      ['ADM001', 'Mas Abim', 'OWNER', '', 'Aktif', true, true, true, today],
-      ['ADM002', 'Mbak Tika', 'REKAP', '', 'Aktif', false, true, true, today],
-      ['ADM003', 'Bu Lis', 'HR', '', 'Aktif', false, false, false, today]
-    ]
+      ['ADM001', 'Mas Abim', 'OWNER', '', 'Aktif', true, true, true, today, true],
+      ['ADM002', 'Mbak Tika', 'REKAP', '', 'Aktif', false, true, true, today, false],
+      ['ADM003', 'Bu Lis', 'HR', '', 'Aktif', false, false, false, today, true]
+    ],
+    Pengajuan: [HEADER_PENGAJUAN.slice()]
   };
 }
 resetState();
@@ -87,14 +91,15 @@ function getSheetData(name) {
 
 // ===================== LOGIC — SELARAS Code.gs =====================
 
-var TIPE_ABSEN_VALID = ['MASUK', 'PULANG', 'MULAI_LEMBUR', 'SELESAI_LEMBUR', 'CUTI', 'OFF'];
 var KELOMPOK_HADIR = ['MASUK', 'PULANG'];
 var KELOMPOK_LEMBUR = ['MULAI_LEMBUR', 'SELESAI_LEMBUR'];
-var KELOMPOK_TIDAK_HADIR = ['CUTI', 'OFF'];
+var TIPE_ABSEN_LANGSUNG = KELOMPOK_HADIR.concat(KELOMPOK_LEMBUR);
+var KELOMPOK_TIDAK_HADIR = ['CUTI', 'SAKIT', 'IZIN_BIASA', 'OFF'];
 var LABEL_TIPE = {
   MASUK: 'masuk', PULANG: 'pulang', MULAI_LEMBUR: 'mulai lembur',
-  SELESAI_LEMBUR: 'selesai lembur', CUTI: 'cuti', OFF: 'off'
+  SELESAI_LEMBUR: 'selesai lembur', CUTI: 'cuti', SAKIT: 'sakit', IZIN_BIASA: 'izin', OFF: 'off'
 };
+var TIPE_IZIN_VALID = ['CUTI', 'SAKIT', 'IZIN_BIASA', 'OFF'];
 
 function normalisasiTanggal(v) { return String(v).trim(); }
 function normalisasiWaktu(v) { return String(v).trim(); }
@@ -180,14 +185,16 @@ function handleAbsen(body) {
   var id = String(body.id_karyawan || '').trim();
   var tipe = String(body.tipe_absen || 'MASUK').trim().toUpperCase();
   if (!id) return { ok: false, error: 'id_karyawan wajib diisi.' };
-  if (TIPE_ABSEN_VALID.indexOf(tipe) === -1) return { ok: false, error: 'tipe_absen tidak dikenal: ' + tipe };
+  if (TIPE_ABSEN_LANGSUNG.indexOf(tipe) === -1) {
+    if (KELOMPOK_TIDAK_HADIR.indexOf(tipe) !== -1) {
+      return { ok: false, error: 'Cuti/Sakit/Izin/Off sekarang lewat menu "Ajukan Izin", bukan absen langsung.' };
+    }
+    return { ok: false, error: 'tipe_absen tidak dikenal: ' + tipe };
+  }
 
-  var butuhLokasi = KELOMPOK_HADIR.indexOf(tipe) !== -1 || KELOMPOK_LEMBUR.indexOf(tipe) !== -1;
-  var lat = butuhLokasi ? parseFloat(body.lat) : (body.lat === undefined || body.lat === null ? null : parseFloat(body.lat));
-  var lng = butuhLokasi ? parseFloat(body.lng) : (body.lng === undefined || body.lng === null ? null : parseFloat(body.lng));
-  if (butuhLokasi && (isNaN(lat) || isNaN(lng))) return { ok: false, error: 'Lokasi GPS tidak terbaca. Coba lagi.' };
-  if (!butuhLokasi && (isNaN(lat) || lat === null)) lat = '';
-  if (!butuhLokasi && (isNaN(lng) || lng === null)) lng = '';
+  var lat = parseFloat(body.lat);
+  var lng = parseFloat(body.lng);
+  if (isNaN(lat) || isNaN(lng)) return { ok: false, error: 'Lokasi GPS tidak terbaca. Coba lagi.' };
 
   var karyawan = findKaryawan(id);
   if (!karyawan) return { ok: false, error: 'Karyawan tidak ditemukan.' };
@@ -203,14 +210,9 @@ function handleAbsen(body) {
     if (!cariAbsenHariIni(id, tanggal, 'MULAI_LEMBUR')) return { ok: false, error: 'Anda belum mulai lembur hari ini. Mulai lembur dulu.' };
   }
 
-  var kelompokLawan = KELOMPOK_TIDAK_HADIR.indexOf(tipe) !== -1 ? KELOMPOK_HADIR.concat(KELOMPOK_LEMBUR) : KELOMPOK_TIDAK_HADIR;
-  for (var i = 0; i < kelompokLawan.length; i++) {
-    var bentrok = cariAbsenHariIni(id, tanggal, kelompokLawan[i]);
-    if (bentrok) return { ok: false, error: 'Hari ini sudah ditandai ' + LABEL_TIPE[kelompokLawan[i]].toUpperCase() + ', tidak bisa ' + LABEL_TIPE[tipe] + '.' };
-  }
-  if (KELOMPOK_TIDAK_HADIR.indexOf(tipe) !== -1) {
-    var lawanSatuGrup = tipe === 'CUTI' ? 'OFF' : 'CUTI';
-    if (cariAbsenHariIni(id, tanggal, lawanSatuGrup)) return { ok: false, error: 'Hari ini sudah ditandai ' + LABEL_TIPE[lawanSatuGrup].toUpperCase() + '.' };
+  for (var i = 0; i < KELOMPOK_TIDAK_HADIR.length; i++) {
+    var bentrok = cariAbsenHariIni(id, tanggal, KELOMPOK_TIDAK_HADIR[i]);
+    if (bentrok) return { ok: false, error: 'Hari ini sudah ditandai ' + LABEL_TIPE[KELOMPOK_TIDAK_HADIR[i]].toUpperCase() + ', tidak bisa ' + LABEL_TIPE[tipe] + '.' };
   }
 
   var sudah = cariAbsenHariIni(id, tanggal, tipe);
@@ -218,18 +220,35 @@ function handleAbsen(body) {
     return { ok: true, sudah_absen: true, tipe_absen: tipe, tanggal: tanggal, waktu: sudah.waktu, pesan: 'Sudah tercatat ' + LABEL_TIPE[tipe] + ' hari ini jam ' + sudah.waktu.substring(0, 5) };
   }
 
-  var jarak = '';
-  var statusLokasi = 'TIDAK_BERLAKU';
-  if (butuhLokasi) {
-    var config = getConfig();
-    jarak = Math.round(haversineMeter(lat, lng, config.lokasi_kantor_lat, config.lokasi_kantor_lng));
-    statusLokasi = jarak <= config.radius_toleransi_m ? 'DALAM_RADIUS' : 'DILUAR_RADIUS';
-  }
+  var config = getConfig();
+  var jarak = Math.round(haversineMeter(lat, lng, config.lokasi_kantor_lat, config.lokasi_kantor_lng));
+  var statusLokasi = jarak <= config.radius_toleransi_m ? 'DALAM_RADIUS' : 'DILUAR_RADIUS';
   var statusVerifikasi = KELOMPOK_LEMBUR.indexOf(tipe) !== -1 ? 'BELUM_DIVERIFIKASI' : 'TIDAK_BERLAKU';
   var idAbsen = 'ABS-' + tanggal.replace(/-/g, '') + '-' + waktu.replace(/:/g, '') + '-' + id;
   db.Absensi.push([idAbsen, id, karyawan.nama, tanggal, waktu, tipe, lat, lng, jarak, statusLokasi, '', statusVerifikasi, '', '']);
 
   return { ok: true, sudah_absen: false, tipe_absen: tipe, tanggal: tanggal, waktu: waktu, jarak_dari_kantor_m: jarak, status_lokasi: statusLokasi };
+}
+
+function tulisAbsenTidakHadir(idKaryawan, nama, tanggal, tipe, catatan) {
+  var kelompokHadirLembur = KELOMPOK_HADIR.concat(KELOMPOK_LEMBUR);
+  for (var h = 0; h < kelompokHadirLembur.length; h++) {
+    if (cariAbsenHariIni(idKaryawan, tanggal, kelompokHadirLembur[h])) {
+      return { ok: false, alasan: 'sudah ada catatan ' + LABEL_TIPE[kelompokHadirLembur[h]] + ' hari itu' };
+    }
+  }
+  for (var g = 0; g < KELOMPOK_TIDAK_HADIR.length; g++) {
+    if (KELOMPOK_TIDAK_HADIR[g] === tipe) continue;
+    if (cariAbsenHariIni(idKaryawan, tanggal, KELOMPOK_TIDAK_HADIR[g])) {
+      return { ok: false, alasan: 'hari itu sudah ditandai ' + LABEL_TIPE[KELOMPOK_TIDAK_HADIR[g]] };
+    }
+  }
+  var sudah = cariAbsenHariIni(idKaryawan, tanggal, tipe);
+  if (sudah) return { ok: true, sudahAda: true };
+
+  var idAbsen = 'ABS-' + tanggal.replace(/-/g, '') + '-IZIN-' + idKaryawan;
+  db.Absensi.push([idAbsen, idKaryawan, nama, tanggal, '00:00:00', tipe, '', '', '', 'TIDAK_BERLAKU', catatan || '', 'TIDAK_BERLAKU', '', '']);
+  return { ok: true };
 }
 
 function handleRiwayat(params) {
@@ -255,7 +274,8 @@ function adminProfilDariBaris(row) {
   return {
     id_admin: String(row[0]).trim(), nama: String(row[1]).trim(), role: String(row[2]).trim().toUpperCase(),
     perlu_pin_baru: String(row[3]).trim() === '', status: String(row[4]).trim(),
-    izin_approve_pengajuan: castBool(row[5]), izin_verifikasi_lembur: castBool(row[6]), izin_lihat_rekap_gaji: castBool(row[7])
+    izin_approve_pengajuan: castBool(row[5]), izin_verifikasi_lembur: castBool(row[6]), izin_lihat_rekap_gaji: castBool(row[7]),
+    izin_lihat_pengajuan: castBool(row[9])
   };
 }
 
@@ -361,7 +381,7 @@ function handleAdminSimpanAkun(body) {
     if (['OWNER', 'HR', 'REKAP'].indexOf(role) === -1) return { ok: false, error: 'Role tidak dikenal: ' + role };
     var idBaru = buatIdAdminBaru(rows);
     var today = formatTanggal(mockNow);
-    db.Admin.push([idBaru, nama, role, '', 'Aktif', role === 'OWNER', role === 'OWNER' || role === 'REKAP', role === 'OWNER' || role === 'REKAP', today]);
+    db.Admin.push([idBaru, nama, role, '', 'Aktif', role === 'OWNER', role === 'OWNER' || role === 'REKAP', role === 'OWNER' || role === 'REKAP', today, role === 'OWNER' || role === 'HR']);
     return { ok: true, id_admin: idBaru };
   }
 
@@ -383,6 +403,7 @@ function handleAdminSimpanAkun(body) {
     if (body.izin_approve_pengajuan !== undefined) rows[rowIdx][5] = !!body.izin_approve_pengajuan;
     if (body.izin_verifikasi_lembur !== undefined) rows[rowIdx][6] = !!body.izin_verifikasi_lembur;
     if (body.izin_lihat_rekap_gaji !== undefined) rows[rowIdx][7] = !!body.izin_lihat_rekap_gaji;
+    if (body.izin_lihat_pengajuan !== undefined) rows[rowIdx][9] = !!body.izin_lihat_pengajuan;
     return { ok: true };
   }
   return { ok: false, error: 'mode tidak dikenal: ' + mode };
@@ -489,7 +510,153 @@ function handleGetRekapGaji(actorId, bulan) {
   var hasil = [];
   for (var idK2 in rekap) hasil.push(rekap[idK2]);
   hasil.sort(function (a, b) { return a.nama < b.nama ? -1 : a.nama > b.nama ? 1 : 0; });
-  return { ok: true, bulan: bulan, rekap: hasil, catatan: 'Belum termasuk Cuti/Izin — menunggu skema Form Izin final.' };
+  return { ok: true, bulan: bulan, rekap: hasil, catatan: 'Belum termasuk hari Cuti/Sakit/Izin/Off — bisa ditambahkan setelah field final disepakati.' };
+}
+
+// ---------- pengajuan izin ----------
+
+function hitungJumlahHari(mulai, selesai) {
+  var a = new Date(mulai + 'T00:00:00');
+  var b = new Date(selesai + 'T00:00:00');
+  return Math.round((b - a) / 86400000) + 1;
+}
+
+function daftarTanggalDalamRentang(mulai, selesai) {
+  var hasil = [];
+  var cur = new Date(mulai + 'T00:00:00');
+  var akhir = new Date(selesai + 'T00:00:00');
+  while (cur <= akhir) {
+    hasil.push(formatTanggal(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return hasil;
+}
+
+// Mock upload Drive — Drive sungguhan tidak ada di Node, cukup kembalikan
+// URL palsu yang deterministik supaya alur bisa diuji end-to-end.
+function simpanLampiran(base64, mime, namaFile) {
+  return 'MOCK_DRIVE_URL/' + namaFile;
+}
+
+function pengajuanDariBaris(row) {
+  return {
+    id_pengajuan: String(row[0]).trim(), id_karyawan: String(row[1]).trim(), nama: String(row[2]).trim(),
+    tipe_izin: String(row[3]).trim().toUpperCase(), tanggal_mulai: normalisasiTanggal(row[4]), tanggal_selesai: normalisasiTanggal(row[5]),
+    jumlah_hari: Number(row[6]) || 0, alasan: String(row[7]).trim(), lampiran_url: String(row[8]).trim(),
+    status: String(row[9]).trim(), diajukan_pada: String(row[10]).trim(), diputuskan_oleh: String(row[11]).trim(),
+    diputuskan_pada: String(row[12]).trim(), catatan_admin: String(row[13]).trim()
+  };
+}
+
+function handleAjukanIzin(body) {
+  var id = String(body.id_karyawan || '').trim();
+  var tipeIzin = String(body.tipe_izin || '').trim().toUpperCase();
+  var tanggalMulai = String(body.tanggal_mulai || '').trim();
+  var tanggalSelesai = String(body.tanggal_selesai || '').trim();
+  var alasan = String(body.alasan || '').trim();
+
+  if (!id) return { ok: false, error: 'id_karyawan wajib diisi.' };
+  if (TIPE_IZIN_VALID.indexOf(tipeIzin) === -1) return { ok: false, error: 'Tipe izin tidak dikenal: ' + tipeIzin };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggalMulai) || !/^\d{4}-\d{2}-\d{2}$/.test(tanggalSelesai)) return { ok: false, error: 'Tanggal mulai/selesai wajib diisi.' };
+  if (tanggalSelesai < tanggalMulai) return { ok: false, error: 'Tanggal selesai tidak boleh sebelum tanggal mulai.' };
+  if (!alasan) return { ok: false, error: 'Alasan wajib diisi.' };
+
+  var karyawan = findKaryawan(id);
+  if (!karyawan) return { ok: false, error: 'Karyawan tidak ditemukan.' };
+  if (karyawan.status.toLowerCase() !== 'aktif') return { ok: false, error: 'Karyawan sudah tidak aktif. Hubungi admin.' };
+
+  var jumlahHari = hitungJumlahHari(tanggalMulai, tanggalSelesai);
+  if (jumlahHari > 31) return { ok: false, error: 'Rentang tanggal terlalu panjang (maks 31 hari per pengajuan).' };
+
+  var rows = db.Pengajuan;
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][1]).trim() !== id) continue;
+    var statusLain = String(rows[i][9]).trim();
+    if (statusLain !== 'PENDING' && statusLain !== 'DISETUJUI') continue;
+    var mLain = normalisasiTanggal(rows[i][4]);
+    var sLain = normalisasiTanggal(rows[i][5]);
+    if (tanggalMulai <= sLain && mLain <= tanggalSelesai) {
+      return { ok: false, error: 'Anda sudah punya pengajuan lain yang tumpang tindih tanggal (' + mLain + ' s/d ' + sLain + ', status ' + statusLain + ').' };
+    }
+  }
+
+  var lampiranUrl = '';
+  if (body.lampiran_base64) {
+    lampiranUrl = simpanLampiran(body.lampiran_base64, body.lampiran_mime, (body.lampiran_nama || 'lampiran') + '.jpg');
+  }
+
+  var idPengajuan = 'PJ-' + formatTanggal(mockNow).replace(/-/g, '') + '-' + formatWaktu(mockNow).replace(/:/g, '') + '-' + id;
+  var diajukanPada = formatTanggal(mockNow) + ' ' + formatWaktu(mockNow);
+  db.Pengajuan.push([idPengajuan, id, karyawan.nama, tipeIzin, tanggalMulai, tanggalSelesai, jumlahHari, alasan, lampiranUrl, 'PENDING', diajukanPada, '', '', '']);
+  return { ok: true, id_pengajuan: idPengajuan, jumlah_hari: jumlahHari };
+}
+
+function handleGetPengajuanSaya(idKaryawan) {
+  var id = String(idKaryawan || '').trim();
+  if (!id) return { ok: false, error: 'id_karyawan wajib diisi.' };
+  var rows = db.Pengajuan;
+  var hasil = [];
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][1]).trim() !== id) continue;
+    hasil.push(pengajuanDariBaris(rows[i]));
+  }
+  hasil.sort(function (a, b) { return a.diajukan_pada < b.diajukan_pada ? 1 : -1; });
+  return { ok: true, pengajuan: hasil };
+}
+
+function handleGetAntreanPengajuan(actorId) {
+  var cek = requireIzin(String(actorId || '').trim(), 'izin_lihat_pengajuan');
+  if (!cek.ok) return cek;
+  var rows = db.Pengajuan;
+  var hasil = [];
+  for (var i = 1; i < rows.length; i++) {
+    var p = pengajuanDariBaris(rows[i]);
+    if (p.status !== 'PENDING') continue;
+    hasil.push(p);
+  }
+  hasil.sort(function (a, b) { return a.diajukan_pada < b.diajukan_pada ? -1 : 1; });
+  return { ok: true, antrean: hasil, bisa_putuskan: cek.admin.role === 'OWNER' || !!cek.admin.izin_approve_pengajuan };
+}
+
+function handlePutuskanPengajuan(body) {
+  var actorId = String(body.actor_id_admin || '').trim();
+  var cek = requireIzin(actorId, 'izin_approve_pengajuan');
+  if (!cek.ok) return cek;
+
+  var idPengajuan = String(body.id_pengajuan || '').trim();
+  var keputusan = String(body.keputusan || '').trim().toUpperCase();
+  var catatan = String(body.catatan_admin || '').trim();
+  if (['DISETUJUI', 'DITOLAK'].indexOf(keputusan) === -1) return { ok: false, error: 'Keputusan harus DISETUJUI atau DITOLAK.' };
+
+  var rows = db.Pengajuan;
+  var rowIdx = -1, data = null;
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === idPengajuan) { rowIdx = i; data = rows[i]; break; }
+  }
+  if (rowIdx === -1) return { ok: false, error: 'Pengajuan tidak ditemukan.' };
+  var statusSekarang = String(data[9]).trim();
+  if (statusSekarang !== 'PENDING') return { ok: false, error: 'Pengajuan ini sudah diputuskan sebelumnya (' + statusSekarang + ').' };
+
+  var waktuKeputusan = formatTanggal(mockNow) + ' ' + formatWaktu(mockNow);
+  rows[rowIdx][9] = keputusan;
+  rows[rowIdx][11] = cek.admin.nama;
+  rows[rowIdx][12] = waktuKeputusan;
+  rows[rowIdx][13] = catatan;
+
+  var tanggalDitulis = [];
+  var tanggalDilewati = [];
+  if (keputusan === 'DISETUJUI') {
+    var idK = String(data[1]).trim();
+    var nama = String(data[2]).trim();
+    var tipeIzin = String(data[3]).trim().toUpperCase();
+    var tanggalList = daftarTanggalDalamRentang(normalisasiTanggal(data[4]), normalisasiTanggal(data[5]));
+    for (var t = 0; t < tanggalList.length; t++) {
+      var r = tulisAbsenTidakHadir(idK, nama, tanggalList[t], tipeIzin, 'Disetujui via pengajuan ' + idPengajuan);
+      if (r.ok && !r.sudahAda) tanggalDitulis.push(tanggalList[t]);
+      else if (!r.ok) tanggalDilewati.push(tanggalList[t] + ' (' + r.alasan + ')');
+    }
+  }
+  return { ok: true, status: keputusan, tanggal_ditulis: tanggalDitulis, tanggal_dilewati: tanggalDilewati };
 }
 
 // ===================== ROUTING (mirip doGet/doPost) =====================
@@ -501,6 +668,8 @@ function doGet(params) {
   if (action === 'getDaftarAdmin') return handleGetDaftarAdmin();
   if (action === 'getAntreanLembur') return handleGetAntreanLembur(params.actor_id_admin);
   if (action === 'getRekapGaji') return handleGetRekapGaji(params.actor_id_admin, params.bulan);
+  if (action === 'getPengajuanSaya') return handleGetPengajuanSaya(params.id_karyawan);
+  if (action === 'getAntreanPengajuan') return handleGetAntreanPengajuan(params.actor_id_admin);
   return { ok: false, error: 'Action tidak dikenal: ' + action };
 }
 
@@ -512,6 +681,8 @@ function doPost(body) {
   if (action === 'adminGantiPin') return handleAdminGantiPin(body);
   if (action === 'adminSimpanAkun') return handleAdminSimpanAkun(body);
   if (action === 'verifikasiLembur') return handleVerifikasiLembur(body);
+  if (action === 'ajukanIzin') return handleAjukanIzin(body);
+  if (action === 'putuskanPengajuan') return handlePutuskanPengajuan(body);
   return { ok: false, error: 'Action tidak dikenal: ' + action };
 }
 

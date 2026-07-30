@@ -13,41 +13,43 @@
   var modeBuatPin = false;
   var bulanKalender = new Date(); // bulan yang sedang ditampilkan
   var riwayatCache = {}; // { 'YYYY-MM': [records] } — supaya kalender tampil instan, tanpa nunggu network
-  // waktu (string) atau null per tipe absen hari ini
-  var statusHariIni = { masuk: null, pulang: null, mulai_lembur: null, selesai_lembur: null, cuti: null, off: null };
+  // waktu (string) atau null per tipe absen hari ini. tidak_hadir menyimpan
+  // TIPE (CUTI/SAKIT/IZIN_BIASA/OFF) kalau hari ini ada izin yang disetujui.
+  var statusHariIni = { masuk: null, pulang: null, mulai_lembur: null, selesai_lembur: null, tidak_hadir: null };
   var tipeAbsenAktif = 'MASUK'; // tipe yang terakhir ditekan, dikunci saat konfirmasi/kirim berlangsung
 
-  // ---- Peta terpusat 6 tipe absen. Kalau nanti nambah tipe baru, cukup
+  // ---- Peta terpusat 4 tipe absen tap-langsung (Hadir + Lembur). Cuti/Sakit/
+  // Izin Biasa/Off SEJAK 2026-07-30 tidak lagi di sini — sekarang lewat form
+  // "Ajukan Izin" (lihat bagian PENGAJUAN IZIN di bawah), butuh approval Owner
+  // sebelum tercatat resmi. Kalau nanti nambah tipe hadir/lembur baru, cukup
   // tambah entri di sini + elemen tombolnya di index.html + variabel warna
-  // di css/style.css — logika di bawah sudah generik, tidak hardcode tipe. ----
+  // di css/style.css. ----
   var ID_TOMBOL = {
     MASUK: 'btn-absen-masuk',
     PULANG: 'btn-absen-pulang',
     MULAI_LEMBUR: 'btn-absen-mulai-lembur',
-    SELESAI_LEMBUR: 'btn-absen-selesai-lembur',
-    CUTI: 'btn-absen-cuti',
-    OFF: 'btn-absen-off'
+    SELESAI_LEMBUR: 'btn-absen-selesai-lembur'
   };
   var KUNCI_STATUS = {
-    MASUK: 'masuk', PULANG: 'pulang', MULAI_LEMBUR: 'mulai_lembur', SELESAI_LEMBUR: 'selesai_lembur', CUTI: 'cuti', OFF: 'off'
+    MASUK: 'masuk', PULANG: 'pulang', MULAI_LEMBUR: 'mulai_lembur', SELESAI_LEMBUR: 'selesai_lembur'
   };
-  var BUTUH_LOKASI = { MASUK: true, PULANG: true, MULAI_LEMBUR: true, SELESAI_LEMBUR: true, CUTI: false, OFF: false };
   var JUDUL_KONFIRMASI = {
     MASUK: 'Absen masuk sekarang?',
     PULANG: 'Absen pulang sekarang?',
     MULAI_LEMBUR: 'Mulai lembur sekarang?',
-    SELESAI_LEMBUR: 'Selesai lembur sekarang?',
-    CUTI: 'Ajukan cuti hari ini?',
-    OFF: 'Tandai off hari ini?'
+    SELESAI_LEMBUR: 'Selesai lembur sekarang?'
   };
   var JUDUL_SUKSES = {
     MASUK: 'Absen Masuk Berhasil',
     PULANG: 'Absen Pulang Berhasil',
     MULAI_LEMBUR: 'Mulai Lembur Tercatat',
-    SELESAI_LEMBUR: 'Selesai Lembur Tercatat',
-    CUTI: 'Cuti Tercatat',
-    OFF: 'Off Tercatat'
+    SELESAI_LEMBUR: 'Selesai Lembur Tercatat'
   };
+
+  // Tipe izin (Pengajuan) — dipetakan warna/label sendiri, terpisah dari 4
+  // tipe absen tap-langsung di atas.
+  var LABEL_IZIN_TAMPIL = { CUTI: 'Cuti', SAKIT: 'Sakit', IZIN_BIASA: 'Izin Biasa', OFF: 'Off' };
+  var LABEL_STATUS_TAMPIL = { PENDING: 'Menunggu', DISETUJUI: 'Disetujui', DITOLAK: 'Ditolak' };
 
   // ============ ELEMEN ============
   var $ = function (id) {
@@ -62,7 +64,7 @@
     layarSemua.forEach(function (el) {
       el.classList.toggle('aktif', el.id === idLayar);
     });
-    var pakaiNav = idLayar === 'layar-absen' || idLayar === 'layar-riwayat';
+    var pakaiNav = idLayar === 'layar-absen' || idLayar === 'layar-riwayat' || idLayar === 'layar-pengajuan-saya';
     $('nav-bawah').classList.toggle('tersembunyi', !pakaiNav);
   }
 
@@ -114,6 +116,13 @@
 
   function pesanKoneksi() {
     return 'Tidak bisa terhubung. Cek internet lalu coba lagi.';
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 
   var NAMA_BULAN = [
@@ -348,37 +357,31 @@
     cekAbsenHariIni(sesi);
   }
 
-  // Gambar ulang KEENAM tombol sesuai statusHariIni. Aturan saling-silang
-  // ini sengaja dicerminkan dari validasi di backend (Code.gs handleAbsen)
-  // supaya karyawan tidak perlu menekan tombol dulu baru tahu ditolak —
-  // tombol yang memang akan ditolak server langsung tampil nonaktif/abu-abu:
-  //  - MASUK/PULANG/MULAI_LEMBUR/SELESAI_LEMBUR (kelompok "hadir"+"lembur")
-  //    dan CUTI/OFF (kelompok "tidak hadir") saling eksklusif per hari.
+  // Gambar ulang KEEMPAT tombol Hadir/Lembur sesuai statusHariIni. Aturan ini
+  // dicerminkan dari validasi di backend (Code.gs handleAbsen) supaya
+  // karyawan tidak perlu menekan tombol dulu baru tahu ditolak:
   //  - PULANG baru bisa ditekan setelah MASUK tercatat.
   //  - SELESAI LEMBUR baru bisa ditekan setelah MULAI LEMBUR tercatat.
   //  - Lembur TIDAK diblokir oleh Masuk/Pulang (boleh terjadi di hari yg sama).
-  //  - CUTI dan OFF juga saling eksklusif satu sama lain.
+  //  - Kalau hari ini ada izin (Cuti/Sakit/Izin Biasa/Off) yang SUDAH
+  //    DISETUJUI (statusHariIni.tidak_hadir terisi), keempat tombol ini
+  //    dikunci — sama seperti guard di backend tulisAbsenTidakHadir/handleAbsen.
   //  - Tipe yang sudah tercatat hari ini ditandai selesai (centang) & dikunci.
   function perbaruiTombolAbsen() {
     var s = statusHariIni;
-    var kelompokHadirAktif = !!(s.masuk || s.pulang);
-    var kelompokLemburAktif = !!(s.mulai_lembur || s.selesai_lembur);
-    var kelompokTidakHadirAktif = !!(s.cuti || s.off);
+    var izinAktif = !!s.tidak_hadir;
 
-    aturTombol('MASUK', !!s.masuk, !!s.masuk || kelompokTidakHadirAktif);
-    aturTombol('PULANG', !!s.pulang, !!s.pulang || !s.masuk || kelompokTidakHadirAktif);
-    aturTombol('MULAI_LEMBUR', !!s.mulai_lembur, !!s.mulai_lembur || kelompokTidakHadirAktif);
-    aturTombol('SELESAI_LEMBUR', !!s.selesai_lembur, !!s.selesai_lembur || !s.mulai_lembur || kelompokTidakHadirAktif);
-    aturTombol('CUTI', !!s.cuti, !!s.cuti || !!s.off || kelompokHadirAktif || kelompokLemburAktif);
-    aturTombol('OFF', !!s.off, !!s.off || !!s.cuti || kelompokHadirAktif || kelompokLemburAktif);
+    aturTombol('MASUK', !!s.masuk, !!s.masuk || izinAktif);
+    aturTombol('PULANG', !!s.pulang, !!s.pulang || !s.masuk || izinAktif);
+    aturTombol('MULAI_LEMBUR', !!s.mulai_lembur, !!s.mulai_lembur || izinAktif);
+    aturTombol('SELESAI_LEMBUR', !!s.selesai_lembur, !!s.selesai_lembur || !s.mulai_lembur || izinAktif);
 
     var ringkasan = [];
     if (s.masuk) ringkasan.push('Masuk ' + jamPendek(s.masuk));
     if (s.pulang) ringkasan.push('Pulang ' + jamPendek(s.pulang));
     if (s.mulai_lembur) ringkasan.push('Mulai Lembur ' + jamPendek(s.mulai_lembur));
     if (s.selesai_lembur) ringkasan.push('Selesai Lembur ' + jamPendek(s.selesai_lembur));
-    if (s.cuti) ringkasan.push('Cuti tercatat jam ' + jamPendek(s.cuti));
-    if (s.off) ringkasan.push('Off tercatat jam ' + jamPendek(s.off));
+    if (s.tidak_hadir) ringkasan.push((LABEL_IZIN_TAMPIL[s.tidak_hadir] || s.tidak_hadir) + ' hari ini (disetujui)');
     $('status-absen').textContent = ringkasan.join(' · ');
   }
 
@@ -392,7 +395,7 @@
     var hariIni = new Date();
     var tglIni = tanggalISO(hariIni);
     var bulan = tglIni.substring(0, 7);
-    statusHariIni = { masuk: null, pulang: null, mulai_lembur: null, selesai_lembur: null, cuti: null, off: null };
+    statusHariIni = { masuk: null, pulang: null, mulai_lembur: null, selesai_lembur: null, tidak_hadir: null };
     apiGet({ action: 'riwayat', id_karyawan: sesi.id_karyawan, bulan: bulan })
       .then(function (data) {
         if (!data.ok) return;
@@ -402,8 +405,7 @@
           if (r.tipe_absen === 'PULANG') statusHariIni.pulang = r.waktu;
           if (r.tipe_absen === 'MULAI_LEMBUR') statusHariIni.mulai_lembur = r.waktu;
           if (r.tipe_absen === 'SELESAI_LEMBUR') statusHariIni.selesai_lembur = r.waktu;
-          if (r.tipe_absen === 'CUTI') statusHariIni.cuti = r.waktu;
-          if (r.tipe_absen === 'OFF') statusHariIni.off = r.waktu;
+          if (LABEL_IZIN_TAMPIL[r.tipe_absen]) statusHariIni.tidak_hadir = r.tipe_absen;
         });
         perbaruiTombolAbsen();
       })
@@ -438,13 +440,15 @@
 
   // Satu listener klik per tombol tipe absen — masing-masing menyimpan
   // tipenya sendiri ke tipeAbsenAktif lalu membuka modal konfirmasi yang sama.
+  // Keempat tipe di sini SEMUA butuh lokasi GPS (beda dgn versi lama yang
+  // punya tipe tanpa-lokasi Cuti/Off — sekarang itu di layar Ajukan Izin).
   Object.keys(ID_TOMBOL).forEach(function (tipe) {
     $(ID_TOMBOL[tipe]).addEventListener('click', function () {
       if (this.disabled) return;
       var sesi = getSesi();
       if (!sesi) return mulaiSetup();
 
-      if (BUTUH_LOKASI[tipe] && !navigator.geolocation) {
+      if (!navigator.geolocation) {
         $('status-absen').textContent = 'HP ini tidak mendukung GPS.';
         return;
       }
@@ -462,13 +466,6 @@
 
     var tipe = tipeAbsenAktif;
     $(ID_TOMBOL[tipe]).disabled = true; // cegah dobel-tap selama proses berjalan
-
-    if (!BUTUH_LOKASI[tipe]) {
-      // CUTI/OFF tidak butuh lokasi — langsung kirim tanpa minta GPS.
-      tampilkanOverlay('Mengirim...');
-      kirimAbsen(sesi, '', '');
-      return;
-    }
 
     tampilkanOverlay('Mencari lokasi...');
     navigator.geolocation.getCurrentPosition(
@@ -527,8 +524,7 @@
         $('judul-sukses').textContent = JUDUL_SUKSES[tipe];
         $('tanggal-sukses').textContent = formatTanggalIndonesia(new Date());
         $('jam-sukses').textContent = jamPendek(data.waktu);
-        // Info lokasi hanya relevan untuk tipe yang butuh GPS (Masuk/Pulang/Lembur)
-        $('lokasi-sukses').classList.toggle('tersembunyi', !BUTUH_LOKASI[tipe]);
+        $('lokasi-sukses').classList.remove('tersembunyi'); // 4 tipe di sini semua butuh lokasi
         $('layar-sukses').className = 'layar layar-sukses layar-sukses-' + tipe.toLowerCase();
         tampilkanLayar('layar-sukses');
       })
@@ -543,6 +539,210 @@
     perbaruiTombolAbsen(); // tombol sekarang mencerminkan status terbaru (mis. siap absen pulang)
     tampilkanLayar('layar-absen');
     $('nav-bawah').classList.remove('tersembunyi');
+  });
+
+  // ============ LAYAR AJUKAN IZIN ============
+
+  var tipeIzinTerpilih = null;
+  var fotoIzinBase64 = null;
+  var fotoIzinMime = 'image/jpeg';
+
+  $('btn-buka-ajukan-izin').addEventListener('click', function () {
+    var sesi = getSesi();
+    if (!sesi) return mulaiSetup();
+    resetFormIzin();
+    tampilkanLayar('layar-ajukan-izin');
+    $('nav-bawah').classList.add('tersembunyi');
+  });
+
+  $('btn-batal-izin').addEventListener('click', function () {
+    var sesi = getSesi();
+    if (sesi) bukaLayarAbsen(sesi);
+  });
+
+  $('grid-tipe-izin').addEventListener('click', function (e) {
+    var btn = e.target.closest('.chip-tipe-izin');
+    if (!btn) return;
+    tipeIzinTerpilih = btn.getAttribute('data-tipe');
+    document.querySelectorAll('.chip-tipe-izin').forEach(function (b) {
+      b.classList.toggle('aktif', b === btn);
+    });
+  });
+
+  // Kalau tanggal selesai belum diisi (atau lebih awal dari tanggal mulai
+  // baru), otomatis samakan dgn tanggal mulai — cukup untuk kasus izin
+  // sehari, user tinggal ubah manual kalau memang beberapa hari.
+  $('izin-tanggal-mulai').addEventListener('change', function () {
+    var selesai = $('izin-tanggal-selesai');
+    if (!selesai.value || selesai.value < this.value) selesai.value = this.value;
+  });
+
+  $('btn-pilih-foto').addEventListener('click', function () {
+    $('input-foto-izin').click();
+  });
+
+  $('input-foto-izin').addEventListener('change', function (e) {
+    var file = e.target.files && e.target.files[0];
+    if (!file) return;
+    resizeGambar(file, 1000)
+      .then(function (hasil) {
+        fotoIzinBase64 = hasil.base64;
+        fotoIzinMime = hasil.mime;
+        $('preview-foto-izin').src = 'data:' + hasil.mime + ';base64,' + hasil.base64;
+        $('preview-foto-izin').classList.remove('tersembunyi');
+        $('btn-hapus-foto').classList.remove('tersembunyi');
+      })
+      .catch(function () {
+        $('izin-error').textContent = 'Gagal memproses foto. Coba lagi atau lewati saja.';
+      });
+  });
+
+  $('btn-hapus-foto').addEventListener('click', function () {
+    fotoIzinBase64 = null;
+    $('input-foto-izin').value = '';
+    $('preview-foto-izin').classList.add('tersembunyi');
+    $('btn-hapus-foto').classList.add('tersembunyi');
+  });
+
+  // Resize gambar di browser sebelum dikirim (maks ~1000px sisi terpanjang,
+  // kualitas JPEG 0.7) — supaya upload cepat & hemat storage Drive, tanpa
+  // perlu library eksternal.
+  function resizeGambar(file, maxDim) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onerror = reject;
+      reader.onload = function () {
+        var img = new Image();
+        img.onerror = reject;
+        img.onload = function () {
+          var w = img.width, h = img.height;
+          if (w > maxDim || h > maxDim) {
+            if (w > h) { h = Math.round((h * maxDim) / w); w = maxDim; }
+            else { w = Math.round((w * maxDim) / h); h = maxDim; }
+          }
+          var canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          var dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+          resolve({ base64: dataUrl.split(',')[1], mime: 'image/jpeg' });
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function resetFormIzin() {
+    tipeIzinTerpilih = null;
+    fotoIzinBase64 = null;
+    document.querySelectorAll('.chip-tipe-izin').forEach(function (b) {
+      b.classList.remove('aktif');
+    });
+    $('izin-tanggal-mulai').value = '';
+    $('izin-tanggal-selesai').value = '';
+    $('izin-alasan').value = '';
+    $('input-foto-izin').value = '';
+    $('preview-foto-izin').classList.add('tersembunyi');
+    $('btn-hapus-foto').classList.add('tersembunyi');
+    $('izin-error').textContent = '';
+  }
+
+  $('btn-kirim-izin').addEventListener('click', function () {
+    var sesi = getSesi();
+    if (!sesi) return mulaiSetup();
+    $('izin-error').textContent = '';
+
+    if (!tipeIzinTerpilih) {
+      $('izin-error').textContent = 'Pilih jenis izin dulu.';
+      return;
+    }
+    var mulaiTgl = $('izin-tanggal-mulai').value;
+    var selesaiTgl = $('izin-tanggal-selesai').value;
+    if (!mulaiTgl || !selesaiTgl) {
+      $('izin-error').textContent = 'Tanggal mulai dan selesai wajib diisi.';
+      return;
+    }
+    if (selesaiTgl < mulaiTgl) {
+      $('izin-error').textContent = 'Tanggal selesai tidak boleh sebelum tanggal mulai.';
+      return;
+    }
+    var alasan = $('izin-alasan').value.trim();
+    if (!alasan) {
+      $('izin-error').textContent = 'Alasan wajib diisi.';
+      return;
+    }
+
+    var body = {
+      action: 'ajukanIzin',
+      id_karyawan: sesi.id_karyawan,
+      tipe_izin: tipeIzinTerpilih,
+      tanggal_mulai: mulaiTgl,
+      tanggal_selesai: selesaiTgl,
+      alasan: alasan
+    };
+    if (fotoIzinBase64) {
+      body.lampiran_base64 = fotoIzinBase64;
+      body.lampiran_mime = fotoIzinMime;
+      body.lampiran_nama = sesi.id_karyawan + '-' + mulaiTgl;
+    }
+
+    tampilkanOverlay('Mengirim pengajuan...');
+    apiPost(body)
+      .then(function (data) {
+        sembunyikanOverlay();
+        if (!data.ok) {
+          $('izin-error').textContent = data.error || 'Gagal mengirim. Coba lagi.';
+          return;
+        }
+        bukaPengajuanSaya(true);
+      })
+      .catch(function () {
+        sembunyikanOverlay();
+        $('izin-error').textContent = pesanKoneksi();
+      });
+  });
+
+  // ============ LAYAR PENGAJUAN SAYA ============
+
+  function bukaPengajuanSaya(pesanSukses) {
+    setNavAktif('nav-pengajuan');
+    tampilkanLayar('layar-pengajuan-saya');
+    $('nav-bawah').classList.remove('tersembunyi');
+    $('pengajuan-pesan').textContent = pesanSukses ? 'Pengajuan berhasil dikirim. Menunggu persetujuan.' : '';
+    muatPengajuanSaya();
+  }
+
+  function muatPengajuanSaya() {
+    var sesi = getSesi();
+    if (!sesi) return;
+    apiGet({ action: 'getPengajuanSaya', id_karyawan: sesi.id_karyawan })
+      .then(function (data) {
+        var wadah = $('daftar-pengajuan-saya');
+        wadah.innerHTML = '';
+        if (!data.ok) return;
+        $('pengajuan-kosong').classList.toggle('tersembunyi', data.pengajuan.length > 0);
+        data.pengajuan.forEach(function (p) {
+          var kartu = document.createElement('div');
+          kartu.className = 'kartu-pengajuan status-' + p.status.toLowerCase();
+          var rentang = p.tanggal_mulai === p.tanggal_selesai
+            ? p.tanggal_mulai
+            : p.tanggal_mulai + ' s/d ' + p.tanggal_selesai;
+          kartu.innerHTML =
+            '<div class="kartu-pengajuan-atas">' +
+              '<span class="label-tipe-izin">' + escapeHtml(LABEL_IZIN_TAMPIL[p.tipe_izin] || p.tipe_izin) + '</span>' +
+              '<span class="badge-status badge-' + p.status.toLowerCase() + '">' + escapeHtml(LABEL_STATUS_TAMPIL[p.status] || p.status) + '</span>' +
+            '</div>' +
+            '<p class="kartu-pengajuan-tanggal">' + escapeHtml(rentang) + ' (' + p.jumlah_hari + ' hari)</p>' +
+            '<p class="kartu-pengajuan-alasan">' + escapeHtml(p.alasan) + '</p>' +
+            (p.catatan_admin ? '<p class="kartu-pengajuan-catatan">Catatan admin: ' + escapeHtml(p.catatan_admin) + '</p>' : '');
+          wadah.appendChild(kartu);
+        });
+      });
+  }
+
+  $('nav-pengajuan').addEventListener('click', function () {
+    bukaPengajuanSaya(false);
   });
 
   // ============ LAYAR KALENDER / RIWAYAT ============
@@ -623,14 +823,14 @@
   }
 
   // Urutan prioritas warna kalau satu hari punya lebih dari satu record.
-  // CUTI/OFF tak pernah bercampur dengan MASUK/PULANG/LEMBUR di hari yang
-  // sama (dijamin saling eksklusif oleh backend). MASUK+PULANG di hari yang
-  // sama tetap mungkin (PULANG "menang" karena artinya hari itu lengkap).
-  // Lembur ditaruh PALING BAWAH prioritas — cuma jadi warna dominan kalau
-  // hari itu TIDAK ada Masuk/Pulang sama sekali (jarang, tapi mungkin utk
-  // bisnis venue/event yang jadwalnya tidak selalu shift reguler).
-  var PRIORITAS_TIPE = ['CUTI', 'OFF', 'PULANG', 'MASUK', 'SELESAI_LEMBUR', 'MULAI_LEMBUR'];
-  var KELAS_HADIR_SEMUA = ['hadir-masuk', 'hadir-pulang', 'hadir-mulai_lembur', 'hadir-selesai_lembur', 'hadir-cuti', 'hadir-off'];
+  // Izin (Cuti/Sakit/Izin Biasa/Off — semuanya dari Pengajuan yang disetujui)
+  // tak pernah bercampur dengan MASUK/PULANG/LEMBUR di hari yang sama
+  // (dijamin saling eksklusif oleh backend). MASUK+PULANG di hari yang sama
+  // tetap mungkin (PULANG "menang" karena artinya hari itu lengkap). Lembur
+  // ditaruh PALING BAWAH prioritas — cuma jadi warna dominan kalau hari itu
+  // TIDAK ada Masuk/Pulang sama sekali.
+  var PRIORITAS_TIPE = ['CUTI', 'SAKIT', 'IZIN_BIASA', 'OFF', 'PULANG', 'MASUK', 'SELESAI_LEMBUR', 'MULAI_LEMBUR'];
+  var KELAS_HADIR_SEMUA = ['hadir-masuk', 'hadir-pulang', 'hadir-mulai_lembur', 'hadir-selesai_lembur', 'hadir-cuti', 'hadir-sakit', 'hadir-izin_biasa', 'hadir-off'];
 
   // Tandai tanggal di grid kalender dengan warna sesuai tipe absen dominan
   // hari itu — dipakai baik oleh cache lokal maupun data segar dari server,

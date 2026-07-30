@@ -27,6 +27,10 @@
   --warna-cuti-tua: #1d4ed8;
   --warna-off: #7c3aed;        /* ungu */
   --warna-off-tua: #6d28d9;
+  --warna-sakit: #e11d48;      /* rose — Sakit (fitur Pengajuan Izin, 2026-07-30) */
+  --warna-sakit-tua: #be123c;
+  --warna-izin_biasa: #64748b; /* slate — Izin Biasa */
+  --warna-izin_biasa-tua: #475569;
 }
 
 * {
@@ -314,8 +318,10 @@ h1 {
   padding: 0 12px;
 }
 
-/* Grid 2 kolom x 3 baris — 6 tombol terpisah, dikelompokkan Hadir / Lembur /
-   Izin (lihat urutan di index.html). Tiap tombol punya warna latar sendiri
+/* Grid 2 kolom x 2 baris — 4 tombol Hadir/Lembur (lihat urutan di
+   index.html). Cuti/Sakit/Izin Biasa/Off sejak 2026-07-30 pindah ke tombol
+   "Ajukan Izin" terpisah (.btn-ajukan-izin) karena sekarang lewat form +
+   approval, bukan tap-langsung. Tiap tombol punya warna latar sendiri
    (lihat .tombol-masuk dkk) yang sama persis dengan warna dipakai di modal
    konfirmasi, layar sukses, dan kalender. */
 .grid-tombol-absen {
@@ -324,6 +330,44 @@ h1 {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 12px;
+}
+
+.btn-ajukan-izin {
+  width: 100%;
+  max-width: 340px;
+  margin-top: 6px;
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--putih);
+  border: 2px dashed var(--abu-border);
+  color: var(--teks-redup);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: left;
+  line-height: 1.4;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.btn-ajukan-izin:active {
+  background: var(--latar);
+  border-color: var(--hijau);
+}
+
+.btn-ajukan-izin svg {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  color: var(--hijau);
+}
+
+.btn-ajukan-izin small {
+  font-weight: 500;
+  color: var(--teks-redup);
+  font-size: 12px;
 }
 
 .tombol-absen {
@@ -661,6 +705,18 @@ h1 {
   font-weight: 800;
 }
 
+.sel-tanggal.hadir-sakit {
+  background: var(--warna-sakit);
+  color: var(--putih);
+  font-weight: 800;
+}
+
+.sel-tanggal.hadir-izin_biasa {
+  background: var(--warna-izin_biasa);
+  color: var(--putih);
+  font-weight: 800;
+}
+
 .sel-tanggal.hadir-off {
   background: var(--warna-off);
   color: var(--putih);
@@ -701,7 +757,169 @@ h1 {
 .kotak-legenda.kotak-pulang { background: var(--warna-pulang); border-color: var(--warna-pulang); }
 .kotak-legenda.kotak-lembur { background: var(--warna-lembur); border-color: var(--warna-lembur); }
 .kotak-legenda.kotak-cuti { background: var(--warna-cuti); border-color: var(--warna-cuti); }
+.kotak-legenda.kotak-sakit { background: var(--warna-sakit); border-color: var(--warna-sakit); }
+.kotak-legenda.kotak-izin_biasa { background: var(--warna-izin_biasa); border-color: var(--warna-izin_biasa); }
 .kotak-legenda.kotak-off { background: var(--warna-off); border-color: var(--warna-off); }
+
+/* ============ AJUKAN IZIN (form pengajuan Cuti/Sakit/Izin Biasa/Off) ============ */
+
+.form-izin {
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+.grid-tipe-izin {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.chip-tipe-izin {
+  padding: 16px 8px;
+  border-radius: 14px;
+  border: 2px solid var(--abu-border);
+  background: var(--putih);
+  color: var(--teks-redup);
+  font-size: 16px;
+  font-weight: 700;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.chip-tipe-izin.aktif {
+  color: var(--putih);
+  border-color: transparent;
+}
+
+.chip-cuti.aktif { background: var(--warna-cuti); }
+.chip-sakit.aktif { background: var(--warna-sakit); }
+.chip-izin_biasa.aktif { background: var(--warna-izin_biasa); }
+.chip-off.aktif { background: var(--warna-off); }
+
+.input-tanggal,
+.input-teks-area {
+  width: 100%;
+  font-family: inherit;
+  font-size: 17px;
+  padding: 14px 14px;
+  border-radius: 14px;
+  border: 2px solid var(--abu-border);
+  background: var(--putih);
+  color: var(--teks);
+  margin-bottom: 4px;
+}
+
+.input-teks-area {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.area-lampiran {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.btn-pilih-foto,
+.btn-hapus-foto {
+  padding: 12px 18px;
+  border-radius: 12px;
+  border: 2px solid var(--abu-border);
+  background: var(--putih);
+  color: var(--hijau-gelap);
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.btn-hapus-foto {
+  color: var(--merah);
+}
+
+.preview-foto {
+  max-width: 200px;
+  max-height: 200px;
+  border-radius: 12px;
+  border: 2px solid var(--abu-border);
+  object-fit: cover;
+}
+
+/* ============ PENGAJUAN SAYA (riwayat & status pengajuan izin) ============ */
+
+.pengajuan-pesan-sukses {
+  text-align: center;
+  color: var(--hijau-gelap);
+  font-weight: 700;
+  font-size: 15px;
+  min-height: 20px;
+  margin-bottom: 6px;
+}
+
+.daftar-pengajuan {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.kartu-pengajuan {
+  background: var(--putih);
+  border: 2px solid var(--abu-border);
+  border-left-width: 6px;
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.kartu-pengajuan.status-pending { border-left-color: #d97706; }
+.kartu-pengajuan.status-disetujui { border-left-color: var(--hijau); }
+.kartu-pengajuan.status-ditolak { border-left-color: var(--merah); }
+
+.kartu-pengajuan-atas {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.label-tipe-izin {
+  font-weight: 800;
+  font-size: 16px;
+  color: var(--hijau-gelap);
+}
+
+.badge-status {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.badge-pending { background: #fef3c7; color: #92400e; }
+.badge-disetujui { background: var(--hijau-muda); color: var(--hijau-gelap); }
+.badge-ditolak { background: #fee2e2; color: #991b1b; }
+
+.kartu-pengajuan-tanggal {
+  font-size: 14px;
+  color: var(--teks-redup);
+  margin-bottom: 4px;
+}
+
+.kartu-pengajuan-alasan {
+  font-size: 15px;
+  color: var(--teks);
+}
+
+.kartu-pengajuan-catatan {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--teks-redup);
+  font-style: italic;
+}
 
 /* ============ NAV BAWAH ============ */
 

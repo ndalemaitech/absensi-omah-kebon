@@ -11,6 +11,7 @@
   var sesiAdmin = null; // profil lengkap admin yang sedang login
 
   var LABEL_ROLE = { OWNER: 'Owner', HR: 'HR', REKAP: 'Rekap' };
+  var LABEL_IZIN_TAMPIL = { CUTI: 'Cuti', SAKIT: 'Sakit', IZIN_BIASA: 'Izin Biasa', OFF: 'Off' };
 
   // ============ ELEMEN ============
   var $ = function (id) { return document.getElementById(id); };
@@ -46,6 +47,14 @@
     document.querySelectorAll('.admin-layar').forEach(function (el) {
       el.classList.toggle('admin-layar-aktif', el.id === id);
     });
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   // ============ ALUR MULAI ============
@@ -169,9 +178,10 @@
     $('admin-nama-aktif').textContent = sesiAdmin.nama;
     $('admin-role-aktif').textContent = LABEL_ROLE[sesiAdmin.role] || sesiAdmin.role;
 
-    // Sembunyikan tab yang bukan wewenang admin ini. "pengajuan" (placeholder)
-    // dan "pin" (ganti PIN sendiri) selalu tampil untuk siapa pun yg login.
+    // Sembunyikan tab yang bukan wewenang admin ini. "pin" (ganti PIN
+    // sendiri) selalu tampil untuk siapa pun yg login.
     aturVisibilitasTab('lembur', bolehAkses('izin_verifikasi_lembur'));
+    aturVisibilitasTab('pengajuan', bolehAkses('izin_lihat_pengajuan'));
     aturVisibilitasTab('rekap', bolehAkses('izin_lihat_rekap_gaji'));
     aturVisibilitasTab('akun', sesiAdmin.role === 'OWNER');
 
@@ -180,6 +190,7 @@
 
     tampilkanAdminLayar('admin-layar-dashboard');
     muatAntreanLembur();
+    muatAntreanPengajuan();
     if (sesiAdmin.role === 'OWNER') muatDaftarAkun();
   }
 
@@ -252,6 +263,73 @@
     });
   });
 
+  // ============ TAB: PENGAJUAN CUTI/IZIN ============
+
+  function muatAntreanPengajuan() {
+    if (!bolehAkses('izin_lihat_pengajuan')) return;
+    apiGet({ action: 'getAntreanPengajuan', actor_id_admin: sesiAdmin.id_admin })
+      .then(function (data) {
+        var tbody = $('admin-pengajuan-tbody');
+        tbody.innerHTML = '';
+        if (!data.ok) return;
+        $('admin-pengajuan-kosong').classList.toggle('tersembunyi', data.antrean.length > 0);
+        $('admin-pengajuan-readonly-note').classList.toggle('tersembunyi', !!data.bisa_putuskan);
+
+        data.antrean.forEach(function (p) {
+          var rentang = p.tanggal_mulai === p.tanggal_selesai
+            ? p.tanggal_mulai
+            : p.tanggal_mulai + ' s/d ' + p.tanggal_selesai;
+          var lampiran = p.lampiran_url
+            ? '<a href="' + escapeHtml(p.lampiran_url) + '" target="_blank" rel="noopener">Lihat</a>'
+            : '—';
+          var aksi = data.bisa_putuskan
+            ? '<button class="admin-btn-kecil admin-btn-setujui" data-id="' + escapeHtml(p.id_pengajuan) + '">Setujui</button> ' +
+              '<button class="admin-btn-kecil admin-btn-tolak" data-id="' + escapeHtml(p.id_pengajuan) + '">Tolak</button>'
+            : '<span class="admin-teks-redup-kecil">Lihat saja</span>';
+          var tr = document.createElement('tr');
+          tr.innerHTML =
+            '<td>' + escapeHtml(p.nama) + '</td>' +
+            '<td>' + escapeHtml(LABEL_IZIN_TAMPIL[p.tipe_izin] || p.tipe_izin) + '</td>' +
+            '<td>' + escapeHtml(rentang) + ' (' + p.jumlah_hari + ' hari)</td>' +
+            '<td>' + p.jumlah_hari + '</td>' +
+            '<td class="admin-td-alasan">' + escapeHtml(p.alasan) + '</td>' +
+            '<td>' + lampiran + '</td>' +
+            '<td>' + escapeHtml(p.diajukan_pada) + '</td>' +
+            '<td>' + aksi + '</td>';
+          tbody.appendChild(tr);
+        });
+      });
+  }
+
+  $('admin-pengajuan-tbody').addEventListener('click', function (e) {
+    var btnSetuju = e.target.closest('.admin-btn-setujui');
+    var btnTolak = e.target.closest('.admin-btn-tolak');
+    var btn = btnSetuju || btnTolak;
+    if (!btn) return;
+    var keputusan = btnSetuju ? 'DISETUJUI' : 'DITOLAK';
+    var labelAksi = btnSetuju ? 'menyetujui' : 'menolak';
+    var catatan = prompt('Catatan untuk ' + labelAksi + ' pengajuan ini (opsional):', '');
+    if (catatan === null) return; // dibatalkan
+    btn.disabled = true;
+    apiPost({
+      action: 'putuskanPengajuan',
+      actor_id_admin: sesiAdmin.id_admin,
+      id_pengajuan: btn.getAttribute('data-id'),
+      keputusan: keputusan,
+      catatan_admin: catatan
+    }).then(function (data) {
+      if (!data.ok) {
+        alert(data.error || 'Gagal menyimpan keputusan.');
+        btn.disabled = false;
+        return;
+      }
+      if (data.tanggal_dilewati && data.tanggal_dilewati.length > 0) {
+        alert('Disetujui, tapi beberapa tanggal dilewati karena sudah ada catatan lain:\n' + data.tanggal_dilewati.join('\n'));
+      }
+      muatAntreanPengajuan();
+    });
+  });
+
   // ============ TAB: REKAP GAJI ============
 
   function bulanIniISO() {
@@ -303,6 +381,7 @@
           '<td>' + escapeHtml(a.nama) + '</td>' +
           '<td>' + (LABEL_ROLE[a.role] || a.role) + '</td>' +
           '<td>' + (aktif ? 'Aktif' : 'Nonaktif') + '</td>' +
+          '<td><input type="checkbox" class="admin-cek-izin" data-id="' + a.id_admin + '" data-izin="izin_lihat_pengajuan" ' + (a.izin_lihat_pengajuan ? 'checked' : '') + (a.role === 'OWNER' ? ' disabled' : '') + ' /></td>' +
           '<td><input type="checkbox" class="admin-cek-izin" data-id="' + a.id_admin + '" data-izin="izin_approve_pengajuan" ' + (a.izin_approve_pengajuan ? 'checked' : '') + (a.role === 'OWNER' ? ' disabled' : '') + ' /></td>' +
           '<td><input type="checkbox" class="admin-cek-izin" data-id="' + a.id_admin + '" data-izin="izin_verifikasi_lembur" ' + (a.izin_verifikasi_lembur ? 'checked' : '') + (a.role === 'OWNER' ? ' disabled' : '') + ' /></td>' +
           '<td><input type="checkbox" class="admin-cek-izin" data-id="' + a.id_admin + '" data-izin="izin_lihat_rekap_gaji" ' + (a.izin_lihat_rekap_gaji ? 'checked' : '') + (a.role === 'OWNER' ? ' disabled' : '') + ' /></td>' +
@@ -391,16 +470,6 @@
         alert('PIN berhasil diganti.');
       });
   });
-
-  // ============ UTIL ============
-
-  function escapeHtml(s) {
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
 
   mulai();
 })();

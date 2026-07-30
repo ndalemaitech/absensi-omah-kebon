@@ -75,13 +75,10 @@
     </header>
 
     <div class="area-absen">
-      <!-- 6 tombol terpisah, satu per tipe absen, dikelompokkan 3 baris:
-           Hadir (Masuk/Pulang), Lembur (Mulai/Selesai Lembur), Izin (Cuti/Off).
-           Tiap tipe punya identitas warna sendiri yang konsisten di seluruh
-           tempat (tombol ini, modal konfirmasi, layar sukses, dan kalender):
-           MASUK=hijau, PULANG=kuning/amber, LEMBUR=teal, CUTI=biru, OFF=ungu.
-           Desain ini sengaja dibuat generik (data-tipe + peta warna terpusat
-           di CSS/JS) supaya gampang ditambah tipe baru nanti tanpa bongkar ulang. -->
+      <!-- 4 tombol Hadir/Lembur (data-tipe + peta warna terpusat di CSS/JS).
+           Cuti/Sakit/Izin Biasa/Off TIDAK LAGI tombol tap-langsung sejak
+           2026-07-30 — sekarang lewat form "Ajukan Izin" di bawah, butuh
+           persetujuan Owner sebelum tercatat resmi di kalender. -->
       <p id="status-absen" class="status-absen"></p>
       <div class="grid-tombol-absen">
         <button id="btn-absen-masuk" class="tombol-absen tombol-masuk" data-tipe="MASUK">
@@ -125,27 +122,16 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
           </span>
         </button>
-        <button id="btn-absen-cuti" class="tombol-absen tombol-cuti" data-tipe="CUTI">
-          <svg class="ikon-tombol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="3" y="7" width="18" height="13" rx="2" />
-            <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-            <line x1="3" y1="13" x2="21" y2="13" />
-          </svg>
-          <span class="label-tombol">CUTI</span>
-          <span class="cek-tombol" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
-          </span>
-        </button>
-        <button id="btn-absen-off" class="tombol-absen tombol-off" data-tipe="OFF">
-          <svg class="ikon-tombol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" />
-          </svg>
-          <span class="label-tombol">OFF</span>
-          <span class="cek-tombol" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
-          </span>
-        </button>
       </div>
+
+      <button id="btn-buka-ajukan-izin" class="btn-ajukan-izin">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="7" width="18" height="13" rx="2" />
+          <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+          <line x1="3" y1="13" x2="21" y2="13" />
+        </svg>
+        <span>Ajukan Izin<br /><small>Cuti / Sakit / Izin Biasa / Off</small></span>
+      </button>
     </div>
   </section>
 
@@ -168,6 +154,54 @@
     </div>
   </section>
 
+  <!-- ============ LAYAR: AJUKAN IZIN ============ -->
+  <section id="layar-ajukan-izin" class="layar">
+    <header class="header-app">
+      <p class="nama-besar">Ajukan Izin</p>
+      <p class="tanggal-hari-ini">Cuti, Sakit, Izin Biasa, atau Off — perlu persetujuan Owner</p>
+    </header>
+    <div class="form-izin">
+      <label class="label-besar">Jenis Izin</label>
+      <div class="grid-tipe-izin" id="grid-tipe-izin">
+        <button type="button" class="chip-tipe-izin chip-cuti" data-tipe="CUTI">Cuti</button>
+        <button type="button" class="chip-tipe-izin chip-sakit" data-tipe="SAKIT">Sakit</button>
+        <button type="button" class="chip-tipe-izin chip-izin_biasa" data-tipe="IZIN_BIASA">Izin Biasa</button>
+        <button type="button" class="chip-tipe-izin chip-off" data-tipe="OFF">Off</button>
+      </div>
+
+      <label for="izin-tanggal-mulai" class="label-besar">Dari tanggal</label>
+      <input type="date" id="izin-tanggal-mulai" class="input-tanggal" />
+
+      <label for="izin-tanggal-selesai" class="label-besar">Sampai tanggal</label>
+      <input type="date" id="izin-tanggal-selesai" class="input-tanggal" />
+
+      <label for="izin-alasan" class="label-besar">Alasan</label>
+      <textarea id="izin-alasan" class="input-teks-area" rows="3" placeholder="Contoh: pulang kampung, demam, dll"></textarea>
+
+      <label class="label-besar">Lampiran foto (opsional)</label>
+      <div class="area-lampiran">
+        <button type="button" id="btn-pilih-foto" class="btn-pilih-foto">Ambil / Pilih Foto</button>
+        <input type="file" id="input-foto-izin" accept="image/*" capture="environment" class="tersembunyi" />
+        <img id="preview-foto-izin" class="preview-foto tersembunyi" alt="Pratinjau lampiran" />
+        <button type="button" id="btn-hapus-foto" class="btn-hapus-foto tersembunyi">Hapus foto</button>
+      </div>
+
+      <p id="izin-error" class="teks-error" role="alert"></p>
+      <button id="btn-kirim-izin" class="btn btn-utama">KIRIM PENGAJUAN</button>
+      <button id="btn-batal-izin" class="btn btn-batal">Batal</button>
+    </div>
+  </section>
+
+  <!-- ============ LAYAR: PENGAJUAN SAYA ============ -->
+  <section id="layar-pengajuan-saya" class="layar">
+    <header class="header-app header-riwayat">
+      <p class="nama-besar">Pengajuan Saya</p>
+    </header>
+    <p id="pengajuan-pesan" class="pengajuan-pesan-sukses"></p>
+    <div id="daftar-pengajuan-saya" class="daftar-pengajuan"></div>
+    <p id="pengajuan-kosong" class="teks-sedang tersembunyi">Belum ada pengajuan.</p>
+  </section>
+
   <!-- ============ LAYAR: KALENDER / RIWAYAT ============ -->
   <section id="layar-riwayat" class="layar">
     <header class="header-app header-riwayat">
@@ -188,6 +222,8 @@
         <span class="legenda-item"><span class="kotak-legenda kotak-pulang"></span> Pulang</span>
         <span class="legenda-item"><span class="kotak-legenda kotak-lembur"></span> Lembur</span>
         <span class="legenda-item"><span class="kotak-legenda kotak-cuti"></span> Cuti</span>
+        <span class="legenda-item"><span class="kotak-legenda kotak-sakit"></span> Sakit</span>
+        <span class="legenda-item"><span class="kotak-legenda kotak-izin_biasa"></span> Izin</span>
         <span class="legenda-item"><span class="kotak-legenda kotak-off"></span> Off</span>
         <span class="legenda-item"><span class="kotak-legenda"></span> Tidak ada catatan</span>
       </div>
@@ -203,6 +239,12 @@
       </svg>
       <span>Absen</span>
     </button>
+    <button id="nav-pengajuan" class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="7" width="18" height="13" rx="2" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="3" y1="13" x2="21" y2="13" />
+      </svg>
+      <span>Pengajuan</span>
+    </button>
     <button id="nav-riwayat" class="nav-item">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
@@ -211,7 +253,8 @@
     </button>
   </nav>
 
-  <!-- Modal konfirmasi sebelum absen dikirim -->
+  <!-- Modal konfirmasi sebelum absen dikirim (khusus 4 tipe Hadir/Lembur —
+       Ajukan Izin punya alur konfirmasi sendiri di layarnya sendiri) -->
   <div id="modal-konfirmasi" class="overlay tersembunyi" role="dialog" aria-modal="true" aria-labelledby="judul-konfirmasi">
     <div id="kartu-konfirmasi" class="kartu-konfirmasi kartu-konfirmasi-masuk">
       <p id="judul-konfirmasi" class="judul-konfirmasi">Absen masuk sekarang?</p>

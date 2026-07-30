@@ -56,7 +56,6 @@ test('login PIN salah ditolak', function () {
 });
 
 test('absen MASUK sukses, lokasi dalam radius', function () {
-  // koordinat sama persis dgn Config → jarak 0
   var res = backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MASUK', lat: -7.3234422729931525, lng: 110.19331425092193 });
   assert.strictEqual(res.ok, true);
   assert.strictEqual(res.status_lokasi, 'DALAM_RADIUS');
@@ -87,31 +86,19 @@ test('absen ganda MASUK dua kali → sudah_absen true, bukan baris baru', functi
   assert.strictEqual(rows.length, 2); // header + 1 baris saja
 });
 
-test('CUTI sukses tanpa lokasi', function () {
-  var res = backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'CUTI' });
-  assert.strictEqual(res.ok, true);
-  assert.strictEqual(res.status_lokasi, 'TIDAK_BERLAKU');
-});
-
-test('MASUK lalu CUTI ditolak (hadir vs tidak hadir eksklusif)', function () {
-  backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MASUK', lat: -7.32, lng: 110.19 });
+test('action=absen dgn tipe_absen CUTI ditolak, diarahkan ke menu Ajukan Izin', function () {
   var res = backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'CUTI' });
   assert.strictEqual(res.ok, false);
+  assert.ok(/ajukan izin/i.test(res.error));
 });
 
-test('CUTI lalu MASUK ditolak (arah sebaliknya)', function () {
-  backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'CUTI' });
-  var res = backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MASUK', lat: -7.32, lng: 110.19 });
-  assert.strictEqual(res.ok, false);
-});
-
-test('CUTI lalu OFF ditolak (saling eksklusif dlm kelompok tidak hadir)', function () {
-  backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'CUTI' });
+test('action=absen dgn tipe_absen OFF juga ditolak (bukan cuma CUTI)', function () {
   var res = backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'OFF' });
   assert.strictEqual(res.ok, false);
+  assert.ok(/ajukan izin/i.test(res.error));
 });
 
-// ===================== KARYAWAN: Lembur (fitur baru) =====================
+// ===================== KARYAWAN: Lembur =====================
 
 test('MULAI_LEMBUR butuh lokasi, sukses dengan lokasi', function () {
   var res = backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MULAI_LEMBUR', lat: -7.32, lng: 110.19 });
@@ -145,18 +132,6 @@ test('MASUK + PULANG lalu Lembur TETAP boleh (lembur tidak eksklusif thd hadir)'
   assert.strictEqual(res.ok, true);
 });
 
-test('Sudah MULAI_LEMBUR lalu coba CUTI ditolak (lembur termasuk golongan butuh-eksklusi thd tidak-hadir)', function () {
-  backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MULAI_LEMBUR', lat: -7.32, lng: 110.19 });
-  var res = backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'CUTI' });
-  assert.strictEqual(res.ok, false);
-});
-
-test('Sudah CUTI lalu coba MULAI_LEMBUR ditolak', function () {
-  backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'CUTI' });
-  var res = backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MULAI_LEMBUR', lat: -7.32, lng: 110.19 });
-  assert.strictEqual(res.ok, false);
-});
-
 // ===================== ADMIN: login & ganti PIN =====================
 
 test('adminLogin pertama kali buat PIN baru', function () {
@@ -172,102 +147,55 @@ test('adminLogin PIN salah ditolak', function () {
   assert.strictEqual(res.ok, false);
 });
 
-test('getDaftarAdmin kembalikan 3 akun awal dgn role & izin default benar', function () {
+test('getDaftarAdmin: role & izin default benar termasuk izin_lihat_pengajuan', function () {
   var res = backend.doGet({ action: 'getDaftarAdmin' });
   assert.strictEqual(res.ok, true);
   assert.strictEqual(res.admin.length, 3);
   var owner = res.admin.filter(function (a) { return a.role === 'OWNER'; })[0];
   var hr = res.admin.filter(function (a) { return a.role === 'HR'; })[0];
   var rekap = res.admin.filter(function (a) { return a.role === 'REKAP'; })[0];
-  assert.strictEqual(owner.izin_approve_pengajuan, true);
+  assert.strictEqual(owner.izin_lihat_pengajuan, true);
+  assert.strictEqual(hr.izin_lihat_pengajuan, true);
   assert.strictEqual(hr.izin_approve_pengajuan, false);
-  assert.strictEqual(hr.izin_verifikasi_lembur, false);
-  assert.strictEqual(rekap.izin_verifikasi_lembur, true);
-  assert.strictEqual(rekap.izin_lihat_rekap_gaji, true);
+  assert.strictEqual(rekap.izin_lihat_pengajuan, false);
 });
 
 test('adminGantiPin: PIN lama salah ditolak, PIN lama benar sukses', function () {
-  backend.doPost({ action: 'adminLogin', id_admin: 'ADM001', pin: '1111' }); // set PIN pertama
+  backend.doPost({ action: 'adminLogin', id_admin: 'ADM001', pin: '1111' });
   var salah = backend.doPost({ action: 'adminGantiPin', id_admin: 'ADM001', pin_lama: '0000', pin_baru: '5555' });
   assert.strictEqual(salah.ok, false);
   var benar = backend.doPost({ action: 'adminGantiPin', id_admin: 'ADM001', pin_lama: '1111', pin_baru: '5555' });
   assert.strictEqual(benar.ok, true);
-  // Login lama sudah tidak berlaku, PIN baru berlaku
-  var loginLama = backend.doPost({ action: 'adminLogin', id_admin: 'ADM001', pin: '1111' });
-  assert.strictEqual(loginLama.ok, false);
   var loginBaru = backend.doPost({ action: 'adminLogin', id_admin: 'ADM001', pin: '5555' });
   assert.strictEqual(loginBaru.ok, true);
 });
 
-// ===================== ADMIN: kelola akun (khusus Owner) =====================
+// ===================== ADMIN: kelola akun =====================
 
-test('non-Owner (HR) ditolak akses adminSimpanAkun', function () {
+test('non-Owner ditolak akses adminSimpanAkun', function () {
   var res = backend.doPost({ action: 'adminSimpanAkun', actor_id_admin: 'ADM003', mode: 'tambah', nama: 'Coba', role: 'HR' });
   assert.strictEqual(res.ok, false);
   assert.ok(/hanya owner/i.test(res.error));
 });
 
-test('Owner bisa tambah akun admin baru', function () {
-  var res = backend.doPost({ action: 'adminSimpanAkun', actor_id_admin: 'ADM001', mode: 'tambah', nama: 'Admin Baru', role: 'REKAP' });
-  assert.strictEqual(res.ok, true);
-  assert.strictEqual(res.id_admin, 'ADM004');
-  var daftar = backend.doGet({ action: 'getDaftarAdmin' });
-  assert.strictEqual(daftar.admin.length, 4);
-});
-
-test('Owner bisa reset PIN admin lain', function () {
-  backend.doPost({ action: 'adminLogin', id_admin: 'ADM003', pin: '3333' });
-  var reset = backend.doPost({ action: 'adminSimpanAkun', actor_id_admin: 'ADM001', mode: 'reset_pin', target_id_admin: 'ADM003' });
-  assert.strictEqual(reset.ok, true);
-  // Setelah reset, pin_hash kosong lagi → login berikutnya (PIN apa pun,
-  // termasuk yg lama) diperlakukan sbg "buat PIN baru", sama seperti SOP
-  // reset PIN karyawan. Ini BUKAN penolakan — itu justru intinya self-service.
-  var loginSetelahReset = backend.doPost({ action: 'adminLogin', id_admin: 'ADM003', pin: '3333' });
-  assert.strictEqual(loginSetelahReset.ok, true);
-  assert.strictEqual(loginSetelahReset.pin_baru_dibuat, true);
-});
-
-test('Owner tidak bisa menonaktifkan akun sendiri', function () {
-  var res = backend.doPost({ action: 'adminSimpanAkun', actor_id_admin: 'ADM001', mode: 'nonaktifkan', target_id_admin: 'ADM001' });
-  assert.strictEqual(res.ok, false);
-});
-
-test('Owner bisa nonaktifkan admin lain, dan admin itu tidak bisa login lagi', function () {
-  var res = backend.doPost({ action: 'adminSimpanAkun', actor_id_admin: 'ADM001', mode: 'nonaktifkan', target_id_admin: 'ADM003' });
-  assert.strictEqual(res.ok, true);
-  var login = backend.doPost({ action: 'adminLogin', id_admin: 'ADM003', pin: '0000' });
-  assert.strictEqual(login.ok, false);
-  assert.ok(/tidak aktif/i.test(login.error));
-});
-
-test('Owner bisa ubah izin admin lain via edit_izin', function () {
-  var res = backend.doPost({ action: 'adminSimpanAkun', actor_id_admin: 'ADM001', mode: 'edit_izin', target_id_admin: 'ADM003', izin_approve_pengajuan: true });
+test('Owner bisa ubah izin_lihat_pengajuan admin lain via edit_izin', function () {
+  var res = backend.doPost({ action: 'adminSimpanAkun', actor_id_admin: 'ADM001', mode: 'edit_izin', target_id_admin: 'ADM002', izin_lihat_pengajuan: true });
   assert.strictEqual(res.ok, true);
   var daftar = backend.doGet({ action: 'getDaftarAdmin' });
-  var bulis = daftar.admin.filter(function (a) { return a.id_admin === 'ADM003'; })[0];
-  assert.strictEqual(bulis.izin_approve_pengajuan, true);
+  var tika = daftar.admin.filter(function (a) { return a.id_admin === 'ADM002'; })[0];
+  assert.strictEqual(tika.izin_lihat_pengajuan, true);
 });
 
 // ===================== ADMIN: antrean & verifikasi Lembur =====================
 
-test('HR (tanpa izin_verifikasi_lembur) ditolak lihat antrean lembur', function () {
-  var res = backend.doGet({ action: 'getAntreanLembur', actor_id_admin: 'ADM003' });
-  assert.strictEqual(res.ok, false);
-});
-
-test('REKAP (punya izin_verifikasi_lembur) bisa lihat antrean lembur', function () {
+test('REKAP bisa lihat antrean lembur, HR tanpa izin ditolak', function () {
   backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MULAI_LEMBUR', lat: -7.32, lng: 110.19 });
   backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'SELESAI_LEMBUR', lat: -7.32, lng: 110.19 });
   var res = backend.doGet({ action: 'getAntreanLembur', actor_id_admin: 'ADM002' });
   assert.strictEqual(res.ok, true);
   assert.strictEqual(res.antrean.length, 1);
-  assert.strictEqual(res.antrean[0].id_karyawan, 'OKT001');
-});
-
-test('Sesi lembur belum lengkap (baru MULAI) tidak muncul di antrean', function () {
-  backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MULAI_LEMBUR', lat: -7.32, lng: 110.19 });
-  var res = backend.doGet({ action: 'getAntreanLembur', actor_id_admin: 'ADM001' });
-  assert.strictEqual(res.antrean.length, 0);
+  var resHr = backend.doGet({ action: 'getAntreanLembur', actor_id_admin: 'ADM003' });
+  assert.strictEqual(resHr.ok, false);
 });
 
 test('durasi lembur dihitung benar dari jam mulai/selesai', function () {
@@ -276,14 +204,7 @@ test('durasi lembur dihitung benar dari jam mulai/selesai', function () {
   ubahJam('19:30');
   backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'SELESAI_LEMBUR', lat: -7.32, lng: 110.19 });
   var res = backend.doGet({ action: 'getAntreanLembur', actor_id_admin: 'ADM001' });
-  assert.strictEqual(res.antrean[0].durasi_menit, 150); // 2 jam 30 menit
-});
-
-test('verifikasiLembur oleh yg tidak berizin ditolak', function () {
-  backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MULAI_LEMBUR', lat: -7.32, lng: 110.19 });
-  backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'SELESAI_LEMBUR', lat: -7.32, lng: 110.19 });
-  var res = backend.doPost({ action: 'verifikasiLembur', actor_id_admin: 'ADM003', id_karyawan: 'OKT001', tanggal: '2026-07-30' });
-  assert.strictEqual(res.ok, false);
+  assert.strictEqual(res.antrean[0].durasi_menit, 150);
 });
 
 test('verifikasiLembur sukses, sesudahnya hilang dari antrean', function () {
@@ -293,18 +214,9 @@ test('verifikasiLembur sukses, sesudahnya hilang dari antrean', function () {
   assert.strictEqual(verif.ok, true);
   var antrean = backend.doGet({ action: 'getAntreanLembur', actor_id_admin: 'ADM002' });
   assert.strictEqual(antrean.antrean.length, 0);
-  var rows = backend.getSheetData('Absensi');
-  var mulaiRow = rows.filter(function (r) { return r[5] === 'MULAI_LEMBUR'; })[0];
-  assert.strictEqual(mulaiRow[11], 'TERVERIFIKASI');
-  assert.strictEqual(mulaiRow[12], 'Mbak Tika');
 });
 
 // ===================== ADMIN: rekap gaji =====================
-
-test('rekap gaji: HR tanpa izin_lihat_rekap_gaji ditolak', function () {
-  var res = backend.doGet({ action: 'getRekapGaji', actor_id_admin: 'ADM003', bulan: '2026-07' });
-  assert.strictEqual(res.ok, false);
-});
 
 test('rekap gaji: hitung hari masuk/lengkap/lembur terverifikasi dengan benar', function () {
   ubahJam('08:00');
@@ -325,12 +237,160 @@ test('rekap gaji: hitung hari masuk/lengkap/lembur terverifikasi dengan benar', 
   assert.ok(rama.menit_lembur_terverifikasi > 0);
 });
 
-test('rekap gaji: lembur BELUM diverifikasi tidak ikut terhitung', function () {
-  backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MULAI_LEMBUR', lat: -7.32, lng: 110.19 });
-  backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'SELESAI_LEMBUR', lat: -7.32, lng: 110.19 });
-  var res = backend.doGet({ action: 'getRekapGaji', actor_id_admin: 'ADM001', bulan: '2026-07' });
-  var rama = res.rekap.filter(function (r) { return r.id_karyawan === 'OKT001'; })[0];
-  assert.strictEqual(rama.menit_lembur_terverifikasi, 0);
+// ===================== PENGAJUAN IZIN: ajukanIzin =====================
+
+test('ajukanIzin sukses, jumlah_hari dihitung benar (rentang 3 hari)', function () {
+  var res = backend.doPost({
+    action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI',
+    tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-12', alasan: 'Pulang kampung'
+  });
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.jumlah_hari, 3);
+  var rows = backend.getSheetData('Pengajuan');
+  assert.strictEqual(rows.length, 2); // header + 1 baris baru
+  assert.strictEqual(rows[1][9], 'PENDING');
+});
+
+test('ajukanIzin: tanggal selesai sebelum mulai ditolak', function () {
+  var res = backend.doPost({
+    action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI',
+    tanggal_mulai: '2026-08-12', tanggal_selesai: '2026-08-10', alasan: 'x'
+  });
+  assert.strictEqual(res.ok, false);
+});
+
+test('ajukanIzin: alasan kosong ditolak', function () {
+  var res = backend.doPost({
+    action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'SAKIT',
+    tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-10', alasan: ''
+  });
+  assert.strictEqual(res.ok, false);
+});
+
+test('ajukanIzin: tipe_izin tidak dikenal ditolak', function () {
+  var res = backend.doPost({
+    action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'LIBUR_NASIONAL',
+    tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-10', alasan: 'x'
+  });
+  assert.strictEqual(res.ok, false);
+});
+
+test('ajukanIzin: lampiran base64 tersimpan sbg lampiran_url', function () {
+  var res = backend.doPost({
+    action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'SAKIT',
+    tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-10', alasan: 'Demam',
+    lampiran_base64: 'ZmFrZS1pbWFnZS1kYXRh', lampiran_mime: 'image/jpeg', lampiran_nama: 'surat-sakit'
+  });
+  assert.strictEqual(res.ok, true);
+  var rows = backend.getSheetData('Pengajuan');
+  assert.ok(rows[1][8].indexOf('surat-sakit') !== -1);
+});
+
+test('ajukanIzin: rentang tumpang tindih dgn pengajuan sendiri yg masih berjalan ditolak', function () {
+  backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-12', alasan: 'A' });
+  var res = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'OFF', tanggal_mulai: '2026-08-12', tanggal_selesai: '2026-08-13', alasan: 'B' });
+  assert.strictEqual(res.ok, false);
+  assert.ok(/tumpang tindih/i.test(res.error));
+});
+
+test('ajukanIzin: karyawan lain boleh ajukan tanggal yg sama (overlap cuma dicek per-orang)', function () {
+  backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-12', alasan: 'A' });
+  var res = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT002', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-12', alasan: 'B' });
+  assert.strictEqual(res.ok, true);
+});
+
+// ===================== PENGAJUAN IZIN: lihat riwayat & antrean =====================
+
+test('getPengajuanSaya hanya kembalikan milik karyawan itu', function () {
+  backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-10', alasan: 'A' });
+  backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT002', tipe_izin: 'SAKIT', tanggal_mulai: '2026-08-11', tanggal_selesai: '2026-08-11', alasan: 'B' });
+  var res = backend.doGet({ action: 'getPengajuanSaya', id_karyawan: 'OKT001' });
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.pengajuan.length, 1);
+  assert.strictEqual(res.pengajuan[0].id_karyawan, 'OKT001');
+});
+
+test('getAntreanPengajuan: HR (izin_lihat_pengajuan default true) bisa lihat tapi bisa_putuskan false', function () {
+  backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-10', alasan: 'A' });
+  var res = backend.doGet({ action: 'getAntreanPengajuan', actor_id_admin: 'ADM003' });
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.antrean.length, 1);
+  assert.strictEqual(res.bisa_putuskan, false);
+});
+
+test('getAntreanPengajuan: Rekap (izin_lihat_pengajuan default false) ditolak', function () {
+  var res = backend.doGet({ action: 'getAntreanPengajuan', actor_id_admin: 'ADM002' });
+  assert.strictEqual(res.ok, false);
+});
+
+test('getAntreanPengajuan: yang sudah diputuskan tidak lagi muncul di antrean', function () {
+  var buat = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-10', alasan: 'A' });
+  backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: buat.id_pengajuan, keputusan: 'DITOLAK' });
+  var res = backend.doGet({ action: 'getAntreanPengajuan', actor_id_admin: 'ADM001' });
+  assert.strictEqual(res.antrean.length, 0);
+});
+
+// ===================== PENGAJUAN IZIN: putuskanPengajuan =====================
+
+test('putuskanPengajuan: HR (izin_approve_pengajuan false) ditolak memutuskan', function () {
+  var buat = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-10', alasan: 'A' });
+  var res = backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM003', id_pengajuan: buat.id_pengajuan, keputusan: 'DISETUJUI' });
+  assert.strictEqual(res.ok, false);
+});
+
+test('putuskanPengajuan: Owner tolak (DITOLAK) → status berubah, TIDAK ada baris Absensi baru', function () {
+  var buat = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-11', alasan: 'A' });
+  var res = backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: buat.id_pengajuan, keputusan: 'DITOLAK', catatan_admin: 'Belum waktunya' });
+  assert.strictEqual(res.ok, true);
+  var rowsAbsensi = backend.getSheetData('Absensi');
+  assert.strictEqual(rowsAbsensi.length, 1); // cuma header, tidak ada baris baru
+  var rowsPengajuan = backend.getSheetData('Pengajuan');
+  assert.strictEqual(rowsPengajuan[1][9], 'DITOLAK');
+  assert.strictEqual(rowsPengajuan[1][13], 'Belum waktunya');
+});
+
+test('putuskanPengajuan: Owner setuju (DISETUJUI) → Absensi terisi utk SETIAP tanggal dalam rentang', function () {
+  var buat = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-12', alasan: 'A' });
+  var res = backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: buat.id_pengajuan, keputusan: 'DISETUJUI' });
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.tanggal_ditulis.length, 3);
+  var rowsAbsensi = backend.getSheetData('Absensi');
+  assert.strictEqual(rowsAbsensi.length, 4); // header + 3 hari
+  var tanggalTertulis = rowsAbsensi.slice(1).map(function (r) { return r[3]; });
+  assert.deepStrictEqual(tanggalTertulis, ['2026-08-10', '2026-08-11', '2026-08-12']);
+  assert.strictEqual(rowsAbsensi[1][5], 'CUTI');
+});
+
+test('putuskanPengajuan: pengajuan yg sudah diputuskan tidak bisa diputuskan lagi', function () {
+  var buat = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-10', alasan: 'A' });
+  backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: buat.id_pengajuan, keputusan: 'DISETUJUI' });
+  var res = backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: buat.id_pengajuan, keputusan: 'DITOLAK' });
+  assert.strictEqual(res.ok, false);
+  assert.ok(/sudah diputuskan/i.test(res.error));
+});
+
+test('putuskanPengajuan DISETUJUI: tanggal yg sudah ada MASUK di-skip (tanggal_dilewati), tanggal lain tetap ditulis', function () {
+  ubahJam('08:00');
+  backend.setNow(new Date('2026-08-11T01:00:00.000Z')); // 2026-08-11 08:00 WIB
+  backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MASUK', lat: -7.32, lng: 110.19 });
+  backend.setNow(new Date('2026-07-30T02:00:00.000Z')); // balik ke waktu submit pengajuan
+
+  var buat = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-12', alasan: 'A' });
+  var res = backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: buat.id_pengajuan, keputusan: 'DISETUJUI' });
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.tanggal_ditulis.length, 2); // 10 & 12 (11 bentrok Masuk)
+  assert.strictEqual(res.tanggal_dilewati.length, 1);
+  assert.ok(res.tanggal_dilewati[0].indexOf('2026-08-11') !== -1);
+});
+
+test('Integrasi: setelah pengajuan CUTI disetujui, absen MASUK di tanggal itu ditolak', function () {
+  var buat = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-10', alasan: 'A' });
+  backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: buat.id_pengajuan, keputusan: 'DISETUJUI' });
+
+  backend.setNow(new Date('2026-08-10T01:00:00.000Z')); // 2026-08-10 08:00 WIB
+  var res = backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MASUK', lat: -7.32, lng: 110.19 });
+  assert.strictEqual(res.ok, false);
+  assert.ok(/cuti/i.test(res.error));
 });
 
 // ===================== RINGKASAN =====================

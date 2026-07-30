@@ -69,12 +69,21 @@
       </div>
     </div>
 
-    <!-- ---- Tab: Pengajuan Cuti/Izin (placeholder, menunggu form final) ---- -->
+    <!-- ---- Tab: Pengajuan Cuti/Izin ---- -->
     <div id="admin-tab-pengajuan" class="admin-tab-konten">
       <h2 class="admin-judul-tab">Pengajuan Cuti/Izin</h2>
-      <div class="admin-placeholder">
-        <p><strong>Fitur ini belum aktif.</strong></p>
-        <p>Form pengajuan Cuti/Sakit/Izin Biasa/Off dan antrean approve-nya menunggu detail field dari form kertas yang sudah dipakai Mas Abim di lapangan. Setelah itu didapat, tab ini akan menampilkan antrean pengajuan untuk direview dan diputuskan Owner.</p>
+      <p class="admin-keterangan">Menampilkan pengajuan yang masih menunggu keputusan. Field masih mengikuti tebakan awal (belum dicocokkan dengan form kertas Mas Abim) — lihat catatan di README kalau field ini perlu disesuaikan nanti.</p>
+      <div id="admin-pengajuan-kosong" class="admin-kosong tersembunyi">Tidak ada pengajuan yang menunggu.</div>
+      <div id="admin-pengajuan-readonly-note" class="admin-placeholder tersembunyi">
+        <p>Anda punya akses <strong>lihat saja</strong> untuk pengajuan ini. Keputusan (setuju/tolak) hanya bisa dilakukan oleh Owner.</p>
+      </div>
+      <div class="admin-tabel-wrap">
+        <table class="admin-tabel">
+          <thead>
+            <tr><th>Nama</th><th>Jenis</th><th>Tanggal</th><th>Hari</th><th>Alasan</th><th>Lampiran</th><th>Diajukan</th><th></th></tr>
+          </thead>
+          <tbody id="admin-pengajuan-tbody"></tbody>
+        </table>
       </div>
     </div>
 
@@ -105,7 +114,7 @@
       <div class="admin-tabel-wrap">
         <table class="admin-tabel">
           <thead>
-            <tr><th>Nama</th><th>Role</th><th>Status</th><th>Approve Pengajuan</th><th>Verifikasi Lembur</th><th>Lihat Rekap Gaji</th><th>Aksi</th></tr>
+            <tr><th>Nama</th><th>Role</th><th>Status</th><th>Lihat Pengajuan</th><th>Approve Pengajuan</th><th>Verifikasi Lembur</th><th>Lihat Rekap Gaji</th><th>Aksi</th></tr>
           </thead>
           <tbody id="admin-akun-tbody"></tbody>
         </table>
