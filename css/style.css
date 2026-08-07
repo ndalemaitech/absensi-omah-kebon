@@ -25,12 +25,10 @@
   --warna-lembur-tua: #155e75;
   --warna-cuti: #2563eb;       /* biru */
   --warna-cuti-tua: #1d4ed8;
-  --warna-off: #7c3aed;        /* ungu */
-  --warna-off-tua: #6d28d9;
   --warna-sakit: #e11d48;      /* rose — Sakit (fitur Pengajuan Izin, 2026-07-30) */
   --warna-sakit-tua: #be123c;
-  --warna-izin_biasa: #64748b; /* slate — Izin Biasa */
-  --warna-izin_biasa-tua: #475569;
+  --warna-izin: #64748b;       /* slate — Izin (dulu "Izin Biasa"; tipe Off dihapus 2026-08-07) */
+  --warna-izin-tua: #475569;
 }
 
 * {
@@ -203,6 +201,18 @@ h1 {
   background: var(--latar);
 }
 
+/* Batal yg membatalkan sebuah PENGAJUAN sedang diisi (bukan cuma navigasi
+   balik netral) — dikasih aksen merah supaya jelas ini aksi "buang draft". */
+.btn-batal-merah {
+  background: var(--putih);
+  color: var(--merah);
+  border: 2px solid #fecaca;
+}
+
+.btn-batal-merah:active {
+  background: #fef2f2;
+}
+
 .info-setup {
   display: flex;
   gap: 10px;
@@ -281,6 +291,62 @@ h1 {
   padding-top: 8px;
 }
 
+/* Header dgn tombol ikon (refresh di Absen, back di Ajukan Izin) — flex row,
+   judul di kiri, tombol bulat di kanan (atau sebaliknya utk back). */
+.header-absen,
+.header-form {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.header-form {
+  align-items: center;
+}
+
+/* Bagian teks header (nama/judul) harus BOLEH menyusut & bungkus kata di HP
+   sempit (320-360px) — tanpa min-width:0 di sini, flex item defaultnya tidak
+   mau menyusut di bawah lebar kontennya sendiri & bisa mendorong tombol
+   ikon di sebelahnya keluar layar. */
+.header-absen > div,
+.header-form > div {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.header-absen .nama-besar,
+.header-form .nama-besar {
+  overflow-wrap: break-word;
+}
+
+.btn-icon-header {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--putih);
+  border: 2px solid var(--abu-border);
+  color: var(--hijau-gelap);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s, transform 0.5s;
+}
+
+.btn-icon-header:active {
+  background: var(--hijau-muda);
+}
+
+.btn-icon-header svg {
+  width: 22px;
+  height: 22px;
+}
+
+.btn-icon-header.berputar svg {
+  animation: putar 0.5s linear;
+}
+
 .sapaan {
   font-size: 20px;
   color: var(--teks-redup);
@@ -319,7 +385,7 @@ h1 {
 }
 
 /* Grid 2 kolom x 2 baris — 4 tombol Hadir/Lembur (lihat urutan di
-   index.html). Cuti/Sakit/Izin Biasa/Off sejak 2026-07-30 pindah ke tombol
+   index.html). Cuti/Sakit/Izin sejak 2026-07-30 pindah ke tombol
    "Ajukan Izin" terpisah (.btn-ajukan-izin) karena sekarang lewat form +
    approval, bukan tap-langsung. Tiap tombol punya warna latar sendiri
    (lihat .tombol-masuk dkk) yang sama persis dengan warna dipakai di modal
@@ -439,15 +505,6 @@ h1 {
 .tombol-lembur:active { background: var(--warna-lembur-tua); }
 .tombol-lembur .cek-tombol svg { color: var(--warna-lembur); }
 
-.tombol-cuti { background: var(--warna-cuti); }
-.tombol-cuti:active { background: var(--warna-cuti-tua); }
-.tombol-cuti .cek-tombol svg { color: var(--warna-cuti); }
-
-.tombol-off { background: var(--warna-off); }
-.tombol-off:active { background: var(--warna-off-tua); }
-.tombol-off .cek-tombol svg { color: var(--warna-off); }
-
-
 /* ============ MODAL KONFIRMASI ============ */
 
 .kartu-konfirmasi {
@@ -467,8 +524,6 @@ h1 {
 .kartu-konfirmasi-pulang { --warna-konfirmasi: var(--warna-pulang); }
 .kartu-konfirmasi-mulai_lembur,
 .kartu-konfirmasi-selesai_lembur { --warna-konfirmasi: var(--warna-lembur); }
-.kartu-konfirmasi-cuti { --warna-konfirmasi: var(--warna-cuti); }
-.kartu-konfirmasi-off { --warna-konfirmasi: var(--warna-off); }
 
 .judul-konfirmasi {
   font-size: 24px;
@@ -507,8 +562,6 @@ h1 {
 .layar-sukses-pulang { --warna-sukses: var(--warna-pulang); }
 .layar-sukses-mulai_lembur,
 .layar-sukses-selesai_lembur { --warna-sukses: var(--warna-lembur); }
-.layar-sukses-cuti { --warna-sukses: var(--warna-cuti); }
-.layar-sukses-off { --warna-sukses: var(--warna-off); }
 
 .lingkaran-sukses {
   width: 140px;
@@ -677,7 +730,7 @@ h1 {
 }
 
 /* Satu warna dominan per hari (bukan campuran). Prioritas (lihat app.js
-   PRIORITAS_TIPE): Cuti/Off (hari libur/izin) > Pulang (hari kerja lengkap)
+   PRIORITAS_TIPE): Cuti/Sakit/Izin (hari libur/izin) > Pulang (hari kerja lengkap)
    > Masuk (hari kerja berjalan) > Lembur (cuma tampil dominan kalau TIDAK
    ada Masuk/Pulang hari itu — jarang, tapi mungkin di bisnis venue/event). */
 .sel-tanggal.hadir-masuk {
@@ -711,14 +764,8 @@ h1 {
   font-weight: 800;
 }
 
-.sel-tanggal.hadir-izin_biasa {
-  background: var(--warna-izin_biasa);
-  color: var(--putih);
-  font-weight: 800;
-}
-
-.sel-tanggal.hadir-off {
-  background: var(--warna-off);
+.sel-tanggal.hadir-izin {
+  background: var(--warna-izin);
   color: var(--putih);
   font-weight: 800;
 }
@@ -758,10 +805,9 @@ h1 {
 .kotak-legenda.kotak-lembur { background: var(--warna-lembur); border-color: var(--warna-lembur); }
 .kotak-legenda.kotak-cuti { background: var(--warna-cuti); border-color: var(--warna-cuti); }
 .kotak-legenda.kotak-sakit { background: var(--warna-sakit); border-color: var(--warna-sakit); }
-.kotak-legenda.kotak-izin_biasa { background: var(--warna-izin_biasa); border-color: var(--warna-izin_biasa); }
-.kotak-legenda.kotak-off { background: var(--warna-off); border-color: var(--warna-off); }
+.kotak-legenda.kotak-izin { background: var(--warna-izin); border-color: var(--warna-izin); }
 
-/* ============ AJUKAN IZIN (form pengajuan Cuti/Sakit/Izin Biasa/Off) ============ */
+/* ============ AJUKAN IZIN (form pengajuan Cuti/Sakit/Izin) ============ */
 
 .form-izin {
   width: 100%;
@@ -773,33 +819,19 @@ h1 {
   padding-top: 8px;
 }
 
-.grid-tipe-izin {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
+.select-tipe-izin {
+  margin-bottom: 4px;
+}
+
+.izin-kuota-info {
+  background: var(--hijau-muda);
+  color: var(--hijau-gelap);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 600;
   margin-bottom: 8px;
 }
-
-.chip-tipe-izin {
-  padding: 16px 8px;
-  border-radius: 14px;
-  border: 2px solid var(--abu-border);
-  background: var(--putih);
-  color: var(--teks-redup);
-  font-size: 16px;
-  font-weight: 700;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
-}
-
-.chip-tipe-izin.aktif {
-  color: var(--putih);
-  border-color: transparent;
-}
-
-.chip-cuti.aktif { background: var(--warna-cuti); }
-.chip-sakit.aktif { background: var(--warna-sakit); }
-.chip-izin_biasa.aktif { background: var(--warna-izin_biasa); }
-.chip-off.aktif { background: var(--warna-off); }
 
 .input-tanggal,
 .input-teks-area {

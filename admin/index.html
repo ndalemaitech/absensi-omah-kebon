@@ -43,13 +43,25 @@
         <p class="admin-sapaan">Halo, <strong id="admin-nama-aktif"></strong></p>
         <p id="admin-role-aktif" class="admin-role-badge"></p>
       </div>
-      <button id="admin-btn-keluar" class="admin-btn-keluar">Keluar</button>
+      <div class="admin-header-aksi">
+        <button id="admin-btn-refresh" class="btn-icon-header" aria-label="Muat ulang">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 4v6h-6" />
+          </svg>
+        </button>
+        <button id="admin-btn-keluar" class="btn-icon-header" aria-label="Keluar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" />
+          </svg>
+        </button>
+      </div>
     </header>
 
     <nav id="admin-nav-tab" class="admin-nav-tab">
       <button class="admin-tab-item aktif" data-tab="lembur">Verifikasi Lembur</button>
       <button class="admin-tab-item" data-tab="pengajuan">Pengajuan Cuti/Izin</button>
-      <button class="admin-tab-item" data-tab="rekap">Rekap Gaji</button>
+      <button class="admin-tab-item" data-tab="rekap">Rekap</button>
+      <button class="admin-tab-item" data-tab="kuota">Kuota Cuti Karyawan</button>
       <button class="admin-tab-item" data-tab="akun">Kelola Akun Admin</button>
       <button class="admin-tab-item" data-tab="pin">Ganti PIN Saya</button>
     </nav>
@@ -72,7 +84,7 @@
     <!-- ---- Tab: Pengajuan Cuti/Izin ---- -->
     <div id="admin-tab-pengajuan" class="admin-tab-konten">
       <h2 class="admin-judul-tab">Pengajuan Cuti/Izin</h2>
-      <p class="admin-keterangan">Menampilkan pengajuan yang masih menunggu keputusan. Field masih mengikuti tebakan awal (belum dicocokkan dengan form kertas Mas Abim) — lihat catatan di README kalau field ini perlu disesuaikan nanti.</p>
+      <p class="admin-keterangan">Menampilkan pengajuan yang masih menunggu keputusan. Klik Setujui/Tolak untuk langsung memutuskan — tanpa perlu isi catatan.</p>
       <div id="admin-pengajuan-kosong" class="admin-kosong tersembunyi">Tidak ada pengajuan yang menunggu.</div>
       <div id="admin-pengajuan-readonly-note" class="admin-placeholder tersembunyi">
         <p>Anda punya akses <strong>lihat saja</strong> untuk pengajuan ini. Keputusan (setuju/tolak) hanya bisa dilakukan oleh Owner.</p>
@@ -80,28 +92,52 @@
       <div class="admin-tabel-wrap">
         <table class="admin-tabel">
           <thead>
-            <tr><th>Nama</th><th>Jenis</th><th>Tanggal</th><th>Hari</th><th>Alasan</th><th>Lampiran</th><th>Diajukan</th><th></th></tr>
+            <tr><th>Nama</th><th>Jenis</th><th>Tanggal</th><th>Hari</th><th>Sisa Kuota Cuti</th><th>Alasan</th><th>Lampiran</th><th>Diajukan</th><th></th></tr>
           </thead>
           <tbody id="admin-pengajuan-tbody"></tbody>
         </table>
       </div>
     </div>
 
-    <!-- ---- Tab: Rekap Gaji ---- -->
+    <!-- ---- Tab: Rekap ---- -->
     <div id="admin-tab-rekap" class="admin-tab-konten">
-      <h2 class="admin-judul-tab">Rekap Gaji (Dasar)</h2>
-      <p class="admin-keterangan" id="admin-rekap-catatan"></p>
+      <h2 class="admin-judul-tab">Rekap</h2>
+      <p class="admin-keterangan" id="admin-rekap-catatan">Hari Kerja dihitung dari absen Masuk. Izin mencakup Sakit maupun Izin biasa. Jam Lembur cuma yang sudah diverifikasi.</p>
       <div class="admin-rekap-kontrol">
         <label for="admin-rekap-bulan">Bulan</label>
         <input id="admin-rekap-bulan" type="month" />
+        <label for="admin-rekap-dari">atau rentang tanggal</label>
+        <input id="admin-rekap-dari" type="date" />
+        <span>s/d</span>
+        <input id="admin-rekap-sampai" type="date" />
+        <label for="admin-rekap-karyawan">Karyawan</label>
+        <select id="admin-rekap-karyawan"><option value="">Semua karyawan</option></select>
         <button id="admin-btn-muat-rekap" class="admin-btn-kecil">Tampilkan</button>
       </div>
       <div class="admin-tabel-wrap">
-        <table class="admin-tabel">
+        <table class="admin-tabel" id="admin-rekap-tabel">
           <thead>
-            <tr><th>Nama</th><th>Hari Masuk</th><th>Hari Lengkap</th><th>Jam Lembur Terverifikasi</th></tr>
+            <tr><th>Nama</th><th>Hari Kerja</th><th>Izin</th><th>Cuti</th><th>Jam Lembur Terverifikasi</th></tr>
           </thead>
           <tbody id="admin-rekap-tbody"></tbody>
+        </table>
+      </div>
+      <div class="admin-rekap-export">
+        <button id="admin-btn-export-csv" class="admin-btn-kecil admin-btn-sekunder">Unduh CSV</button>
+        <button id="admin-btn-export-pdf" class="admin-btn-kecil admin-btn-sekunder">Cetak / Simpan PDF</button>
+      </div>
+    </div>
+
+    <!-- ---- Tab: Kuota Cuti Karyawan (khusus Owner) ---- -->
+    <div id="admin-tab-kuota" class="admin-tab-konten">
+      <h2 class="admin-judul-tab">Kuota Cuti Karyawan</h2>
+      <p class="admin-keterangan">Khusus Owner. Otomatis: 0 hari sebelum genap 1 tahun kerja, 12 hari/tahun setelahnya (tidak dobel dari tahun sebelumnya). Isi kolom "Override" untuk menimpa angka otomatis itu utk karyawan tertentu — kosongkan lagi untuk kembali ke otomatis.</p>
+      <div class="admin-tabel-wrap">
+        <table class="admin-tabel">
+          <thead>
+            <tr><th>Nama</th><th>Tanggal Daftar</th><th>Kuota Otomatis</th><th>Override</th><th>Terpakai Thn Ini</th><th>Sisa</th><th></th></tr>
+          </thead>
+          <tbody id="admin-kuota-tbody"></tbody>
         </table>
       </div>
     </div>
@@ -114,20 +150,17 @@
       <div class="admin-tabel-wrap">
         <table class="admin-tabel">
           <thead>
-            <tr><th>Nama</th><th>Role</th><th>Status</th><th>Lihat Pengajuan</th><th>Approve Pengajuan</th><th>Verifikasi Lembur</th><th>Lihat Rekap Gaji</th><th>Aksi</th></tr>
+            <tr><th>Nama</th><th>Role</th><th>Status</th><th>Lihat Pengajuan</th><th>Approve Pengajuan</th><th>Verifikasi Lembur</th><th>Lihat Rekap</th><th>Aksi</th></tr>
           </thead>
           <tbody id="admin-akun-tbody"></tbody>
         </table>
       </div>
 
       <h3 class="admin-subjudul">Tambah Akun Admin Baru</h3>
+      <p class="admin-keterangan">Role bebas diketik (mis. "Supervisor"). Role persis <strong>Owner</strong>/<strong>HR</strong>/<strong>Rekap</strong> dapat izin default seperti biasa; role lain dibuat dgn semua izin nonaktif — tinggal dicentang manual di tabel atas.</p>
       <div class="admin-form-baris">
         <input id="admin-akun-nama-baru" type="text" placeholder="Nama" class="admin-input-teks" />
-        <select id="admin-akun-role-baru" class="admin-input-teks">
-          <option value="HR">HR</option>
-          <option value="REKAP">Rekap</option>
-          <option value="OWNER">Owner</option>
-        </select>
+        <input id="admin-akun-role-baru" type="text" placeholder="Role (mis. HR, Rekap, Supervisor)" class="admin-input-teks" />
         <button id="admin-btn-tambah-akun" class="admin-btn-kecil">Tambah</button>
       </div>
       <p id="admin-akun-pesan" class="teks-error" role="alert"></p>

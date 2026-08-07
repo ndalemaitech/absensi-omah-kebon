@@ -92,10 +92,16 @@ test('action=absen dgn tipe_absen CUTI ditolak, diarahkan ke menu Ajukan Izin', 
   assert.ok(/ajukan izin/i.test(res.error));
 });
 
-test('action=absen dgn tipe_absen OFF juga ditolak (bukan cuma CUTI)', function () {
-  var res = backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'OFF' });
+test('action=absen dgn tipe_absen IZIN juga ditolak (bukan cuma CUTI)', function () {
+  var res = backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'IZIN' });
   assert.strictEqual(res.ok, false);
   assert.ok(/ajukan izin/i.test(res.error));
+});
+
+test('tipe_absen OFF sudah dihapus — dianggap tidak dikenal', function () {
+  var res = backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'OFF' });
+  assert.strictEqual(res.ok, false);
+  assert.ok(/tidak dikenal/i.test(res.error));
 });
 
 // ===================== KARYAWAN: Lembur =====================
@@ -186,6 +192,24 @@ test('Owner bisa ubah izin_lihat_pengajuan admin lain via edit_izin', function (
   assert.strictEqual(tika.izin_lihat_pengajuan, true);
 });
 
+test('Owner bisa tambah admin dgn role BEBAS TEKS (bukan cuma OWNER/HR/REKAP)', function () {
+  var res = backend.doPost({ action: 'adminSimpanAkun', actor_id_admin: 'ADM001', mode: 'tambah', nama: 'Pak Joko', role: 'SUPERVISOR' });
+  assert.strictEqual(res.ok, true);
+  var daftar = backend.doGet({ action: 'getDaftarAdmin' });
+  var joko = daftar.admin.filter(function (a) { return a.id_admin === res.id_admin; })[0];
+  assert.strictEqual(joko.role, 'SUPERVISOR');
+  // role custom → default SEMUA izin OFF (Owner tinggal centang manual)
+  assert.strictEqual(joko.izin_approve_pengajuan, false);
+  assert.strictEqual(joko.izin_verifikasi_lembur, false);
+  assert.strictEqual(joko.izin_lihat_rekap_gaji, false);
+  assert.strictEqual(joko.izin_lihat_pengajuan, false);
+});
+
+test('tambah admin: role kosong ditolak', function () {
+  var res = backend.doPost({ action: 'adminSimpanAkun', actor_id_admin: 'ADM001', mode: 'tambah', nama: 'Coba', role: '' });
+  assert.strictEqual(res.ok, false);
+});
+
 // ===================== ADMIN: antrean & verifikasi Lembur =====================
 
 test('REKAP bisa lihat antrean lembur, HR tanpa izin ditolak', function () {
@@ -216,9 +240,9 @@ test('verifikasiLembur sukses, sesudahnya hilang dari antrean', function () {
   assert.strictEqual(antrean.antrean.length, 0);
 });
 
-// ===================== ADMIN: rekap gaji =====================
+// ===================== ADMIN: rekap =====================
 
-test('rekap gaji: hitung hari masuk/lengkap/lembur terverifikasi dengan benar', function () {
+test('rekap: hari_kerja/hari_izin/hari_cuti/menit_lembur_terverifikasi dihitung benar', function () {
   ubahJam('08:00');
   backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MASUK', lat: -7.32, lng: 110.19 });
   ubahJam('16:00');
@@ -229,26 +253,67 @@ test('rekap gaji: hitung hari masuk/lengkap/lembur terverifikasi dengan benar', 
   backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'SELESAI_LEMBUR', lat: -7.32, lng: 110.19 });
   backend.doPost({ action: 'verifikasiLembur', actor_id_admin: 'ADM001', id_karyawan: 'OKT001', tanggal: '2026-07-30' });
 
+  var buatIzin = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'SAKIT', tanggal_mulai: '2026-07-31', tanggal_selesai: '2026-07-31', alasan: 'Demam' });
+  backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: buatIzin.id_pengajuan, keputusan: 'DISETUJUI' });
+  backend.setNow(new Date('2026-07-30T02:00:05.000Z')); // geser 5 detik hindari id_pengajuan sama persis (dua ajukanIzin di detik yg sama akan collide)
+  var buatCuti = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-07-28', tanggal_selesai: '2026-07-28', alasan: 'Acara keluarga' });
+  backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: buatCuti.id_pengajuan, keputusan: 'DISETUJUI' });
+
   var res = backend.doGet({ action: 'getRekapGaji', actor_id_admin: 'ADM001', bulan: '2026-07' });
   assert.strictEqual(res.ok, true);
   var rama = res.rekap.filter(function (r) { return r.id_karyawan === 'OKT001'; })[0];
-  assert.strictEqual(rama.hari_masuk, 1);
-  assert.strictEqual(rama.hari_lengkap, 1);
+  assert.strictEqual(rama.hari_kerja, 1);
+  assert.strictEqual(rama.hari_izin, 1);
+  assert.strictEqual(rama.hari_cuti, 1);
   assert.ok(rama.menit_lembur_terverifikasi > 0);
+});
+
+test('rekap: filter id_karyawan hanya kembalikan 1 orang', function () {
+  var res = backend.doGet({ action: 'getRekapGaji', actor_id_admin: 'ADM001', bulan: '2026-07', id_karyawan: 'OKT002' });
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.rekap.length, 1);
+  assert.strictEqual(res.rekap[0].id_karyawan, 'OKT002');
+});
+
+test('rekap: filter rentang tanggal custom override bulan', function () {
+  ubahJam('08:00');
+  backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MASUK', lat: -7.32, lng: 110.19 });
+  var res = backend.doGet({ action: 'getRekapGaji', actor_id_admin: 'ADM001', tanggal_mulai: '2026-07-30', tanggal_selesai: '2026-07-30' });
+  assert.strictEqual(res.ok, true);
+  var rama = res.rekap.filter(function (r) { return r.id_karyawan === 'OKT001'; })[0];
+  assert.strictEqual(rama.hari_kerja, 1);
 });
 
 // ===================== PENGAJUAN IZIN: ajukanIzin =====================
 
-test('ajukanIzin sukses, jumlah_hari dihitung benar (rentang 3 hari)', function () {
+test('ajukanIzin CUTI sukses maks 2 hari, jumlah_hari dihitung benar', function () {
+  var res = backend.doPost({
+    action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI',
+    tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-11', alasan: 'Pulang kampung'
+  });
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.jumlah_hari, 2);
+  var rows = backend.getSheetData('Pengajuan');
+  assert.strictEqual(rows.length, 2); // header + 1 baris baru
+  assert.strictEqual(rows[1][9], 'PENDING');
+});
+
+test('ajukanIzin CUTI lebih dari 2 hari ditolak', function () {
   var res = backend.doPost({
     action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI',
     tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-12', alasan: 'Pulang kampung'
   });
+  assert.strictEqual(res.ok, false);
+  assert.ok(/maksimal 2 hari/i.test(res.error));
+});
+
+test('ajukanIzin SAKIT boleh lebih dari 2 hari (batas cuma berlaku utk CUTI)', function () {
+  var res = backend.doPost({
+    action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'SAKIT',
+    tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-13', alasan: 'Demam berdarah'
+  });
   assert.strictEqual(res.ok, true);
-  assert.strictEqual(res.jumlah_hari, 3);
-  var rows = backend.getSheetData('Pengajuan');
-  assert.strictEqual(rows.length, 2); // header + 1 baris baru
-  assert.strictEqual(rows[1][9], 'PENDING');
+  assert.strictEqual(res.jumlah_hari, 4);
 });
 
 test('ajukanIzin: tanggal selesai sebelum mulai ditolak', function () {
@@ -267,9 +332,9 @@ test('ajukanIzin: alasan kosong ditolak', function () {
   assert.strictEqual(res.ok, false);
 });
 
-test('ajukanIzin: tipe_izin tidak dikenal ditolak', function () {
+test('ajukanIzin: tipe_izin tidak dikenal ditolak (termasuk OFF, sudah dihapus)', function () {
   var res = backend.doPost({
-    action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'LIBUR_NASIONAL',
+    action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'OFF',
     tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-10', alasan: 'x'
   });
   assert.strictEqual(res.ok, false);
@@ -287,15 +352,15 @@ test('ajukanIzin: lampiran base64 tersimpan sbg lampiran_url', function () {
 });
 
 test('ajukanIzin: rentang tumpang tindih dgn pengajuan sendiri yg masih berjalan ditolak', function () {
-  backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-12', alasan: 'A' });
-  var res = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'OFF', tanggal_mulai: '2026-08-12', tanggal_selesai: '2026-08-13', alasan: 'B' });
+  backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-11', alasan: 'A' });
+  var res = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'IZIN', tanggal_mulai: '2026-08-11', tanggal_selesai: '2026-08-13', alasan: 'B' });
   assert.strictEqual(res.ok, false);
   assert.ok(/tumpang tindih/i.test(res.error));
 });
 
 test('ajukanIzin: karyawan lain boleh ajukan tanggal yg sama (overlap cuma dicek per-orang)', function () {
-  backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-12', alasan: 'A' });
-  var res = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT002', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-12', alasan: 'B' });
+  backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-11', alasan: 'A' });
+  var res = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT002', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-11', alasan: 'B' });
   assert.strictEqual(res.ok, true);
 });
 
@@ -318,6 +383,13 @@ test('getAntreanPengajuan: HR (izin_lihat_pengajuan default true) bisa lihat tap
   assert.strictEqual(res.bisa_putuskan, false);
 });
 
+test('getAntreanPengajuan: item CUTI disertai sisa_kuota_cuti', function () {
+  backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-10', alasan: 'A' });
+  var res = backend.doGet({ action: 'getAntreanPengajuan', actor_id_admin: 'ADM001' });
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(typeof res.antrean[0].sisa_kuota_cuti, 'number');
+});
+
 test('getAntreanPengajuan: Rekap (izin_lihat_pengajuan default false) ditolak', function () {
   var res = backend.doGet({ action: 'getAntreanPengajuan', actor_id_admin: 'ADM002' });
   assert.strictEqual(res.ok, false);
@@ -338,26 +410,25 @@ test('putuskanPengajuan: HR (izin_approve_pengajuan false) ditolak memutuskan', 
   assert.strictEqual(res.ok, false);
 });
 
-test('putuskanPengajuan: Owner tolak (DITOLAK) → status berubah, TIDAK ada baris Absensi baru', function () {
+test('putuskanPengajuan: Owner tolak (DITOLAK) TANPA catatan → status berubah, TIDAK ada baris Absensi baru', function () {
   var buat = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-11', alasan: 'A' });
-  var res = backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: buat.id_pengajuan, keputusan: 'DITOLAK', catatan_admin: 'Belum waktunya' });
+  var res = backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: buat.id_pengajuan, keputusan: 'DITOLAK' });
   assert.strictEqual(res.ok, true);
   var rowsAbsensi = backend.getSheetData('Absensi');
   assert.strictEqual(rowsAbsensi.length, 1); // cuma header, tidak ada baris baru
   var rowsPengajuan = backend.getSheetData('Pengajuan');
   assert.strictEqual(rowsPengajuan[1][9], 'DITOLAK');
-  assert.strictEqual(rowsPengajuan[1][13], 'Belum waktunya');
 });
 
 test('putuskanPengajuan: Owner setuju (DISETUJUI) → Absensi terisi utk SETIAP tanggal dalam rentang', function () {
-  var buat = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-12', alasan: 'A' });
+  var buat = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-11', alasan: 'A' });
   var res = backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: buat.id_pengajuan, keputusan: 'DISETUJUI' });
   assert.strictEqual(res.ok, true);
-  assert.strictEqual(res.tanggal_ditulis.length, 3);
+  assert.strictEqual(res.tanggal_ditulis.length, 2);
   var rowsAbsensi = backend.getSheetData('Absensi');
-  assert.strictEqual(rowsAbsensi.length, 4); // header + 3 hari
+  assert.strictEqual(rowsAbsensi.length, 3); // header + 2 hari
   var tanggalTertulis = rowsAbsensi.slice(1).map(function (r) { return r[3]; });
-  assert.deepStrictEqual(tanggalTertulis, ['2026-08-10', '2026-08-11', '2026-08-12']);
+  assert.deepStrictEqual(tanggalTertulis, ['2026-08-10', '2026-08-11']);
   assert.strictEqual(rowsAbsensi[1][5], 'CUTI');
 });
 
@@ -375,7 +446,7 @@ test('putuskanPengajuan DISETUJUI: tanggal yg sudah ada MASUK di-skip (tanggal_d
   backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MASUK', lat: -7.32, lng: 110.19 });
   backend.setNow(new Date('2026-07-30T02:00:00.000Z')); // balik ke waktu submit pengajuan
 
-  var buat = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-12', alasan: 'A' });
+  var buat = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'SAKIT', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-12', alasan: 'Demam' });
   var res = backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: buat.id_pengajuan, keputusan: 'DISETUJUI' });
   assert.strictEqual(res.ok, true);
   assert.strictEqual(res.tanggal_ditulis.length, 2); // 10 & 12 (11 bentrok Masuk)
@@ -391,6 +462,56 @@ test('Integrasi: setelah pengajuan CUTI disetujui, absen MASUK di tanggal itu di
   var res = backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MASUK', lat: -7.32, lng: 110.19 });
   assert.strictEqual(res.ok, false);
   assert.ok(/cuti/i.test(res.error));
+});
+
+// ===================== KUOTA CUTI =====================
+
+test('kuota cuti: karyawan baru (< 1 thn kerja) kuota otomatis 0', function () {
+  var res = backend.doGet({ action: 'getKuotaCutiSaya', id_karyawan: 'OKT001' });
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.kuota, 0);
+});
+
+test('kuota cuti: karyawan lewat 1 thn kerja dapat 12 hari otomatis', function () {
+  var rows = backend.getSheetData('Karyawan');
+  rows[1][4] = '2025-01-01'; // OKT001 daftar > 1 tahun sebelum mockNow (2026-07-30)
+  var res = backend.doGet({ action: 'getKuotaCutiSaya', id_karyawan: 'OKT001' });
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.kuota, 12);
+});
+
+test('kuota cuti: terpakai bertambah setelah pengajuan CUTI disetujui, sisa berkurang', function () {
+  var rows = backend.getSheetData('Karyawan');
+  rows[1][4] = '2025-01-01';
+  var buat = backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'CUTI', tanggal_mulai: '2026-08-10', tanggal_selesai: '2026-08-11', alasan: 'A' });
+  backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: buat.id_pengajuan, keputusan: 'DISETUJUI' });
+  var res = backend.doGet({ action: 'getKuotaCutiSaya', id_karyawan: 'OKT001' });
+  assert.strictEqual(res.terpakai, 2);
+  assert.strictEqual(res.sisa, 10);
+});
+
+test('setKuotaCutiOverride: KHUSUS Owner, menimpa perhitungan otomatis', function () {
+  var tolak = backend.doPost({ action: 'setKuotaCutiOverride', actor_id_admin: 'ADM003', id_karyawan: 'OKT001', override: '20' });
+  assert.strictEqual(tolak.ok, false);
+  var res = backend.doPost({ action: 'setKuotaCutiOverride', actor_id_admin: 'ADM001', id_karyawan: 'OKT001', override: '20' });
+  assert.strictEqual(res.ok, true);
+  var cek = backend.doGet({ action: 'getKuotaCutiSaya', id_karyawan: 'OKT001' });
+  assert.strictEqual(cek.kuota, 20);
+});
+
+test('setKuotaCutiOverride: kosongkan override balik ke perhitungan otomatis', function () {
+  backend.doPost({ action: 'setKuotaCutiOverride', actor_id_admin: 'ADM001', id_karyawan: 'OKT001', override: '20' });
+  backend.doPost({ action: 'setKuotaCutiOverride', actor_id_admin: 'ADM001', id_karyawan: 'OKT001', override: '' });
+  var cek = backend.doGet({ action: 'getKuotaCutiSaya', id_karyawan: 'OKT001' });
+  assert.strictEqual(cek.kuota, 0); // OKT001 belum 1 thn kerja di skenario default
+});
+
+test('getKuotaCuti: KHUSUS Owner, daftar semua karyawan aktif', function () {
+  var tolak = backend.doGet({ action: 'getKuotaCuti', actor_id_admin: 'ADM002' });
+  assert.strictEqual(tolak.ok, false);
+  var res = backend.doGet({ action: 'getKuotaCuti', actor_id_admin: 'ADM001' });
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.kuota.length, 2);
 });
 
 // ===================== RINGKASAN =====================

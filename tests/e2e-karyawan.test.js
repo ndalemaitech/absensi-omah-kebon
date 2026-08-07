@@ -50,11 +50,33 @@ function makeFetchMock() {
   };
 }
 
+// "Hari ini" tetap (WIB 09:00, 2026-07-30) — SAMA dgn default backend.setNow()
+// di test_run(). app.js pakai `new Date()` asli (bukan cuma lewat backend)
+// utk label "hari ini" & filter cache riwayat, jadi client & server WAJIB
+// sepakat soal tanggal skrg — kalau tidak, tanggal dari respons backend
+// (mis. data.tanggal saat absen) tidak akan pernah cocok dgn tglIni yg
+// dihitung client dari real wall-clock, dan test jadi rapuh tergantung
+// kapan persis suite ini dijalankan.
+var WAKTU_TETAP_ISO = '2026-07-30T02:00:00.000Z';
+
+function buatFakeDate(RealDate, iso) {
+  function FakeDate() {
+    var args = Array.prototype.slice.call(arguments);
+    if (args.length === 0) args = [iso];
+    var Bound = Function.prototype.bind.apply(RealDate, [null].concat(args));
+    return new Bound();
+  }
+  FakeDate.prototype = RealDate.prototype;
+  FakeDate.now = function () { return new RealDate(iso).getTime(); };
+  return FakeDate;
+}
+
 // Bikin window+DOM baru & jalankan app.js di dalamnya — dipakai "device" baru
 // tiap kali dipanggil (localStorage terpisah kalau tidak dioper manual).
 function buatDevice(localStorageAwal, geoSukses) {
   var dom = new JSDOM(HTML, { url: 'https://absensi-omahkebon.test/', pretendToBeVisual: true, runScripts: 'outside-only' });
   var win = dom.window;
+  win.Date = buatFakeDate(win.Date, WAKTU_TETAP_ISO);
   Object.defineProperty(win, 'localStorage', { value: localStorageAwal || makeLocalStorage(), configurable: true });
   win.fetch = makeFetchMock();
   win.navigator.geolocation = {
@@ -122,17 +144,21 @@ async function tekanTombolAbsen(win, tipeId) {
 
 function setInputValue(win, id, value) {
   var el = $(win, id);
-  var setter = Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, 'value').set;
-  var setterArea = Object.getOwnPropertyDescriptor(win.HTMLTextAreaElement.prototype, 'value').set;
-  if (el.tagName === 'TEXTAREA') setterArea.call(el, value); else setter.call(el, value);
+  var proto = el.tagName === 'TEXTAREA' ? win.HTMLTextAreaElement.prototype
+    : el.tagName === 'SELECT' ? win.HTMLSelectElement.prototype
+    : win.HTMLInputElement.prototype;
+  var setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+  setter.call(el, value);
   el.dispatchEvent(new win.Event('input', { bubbles: true }));
   el.dispatchEvent(new win.Event('change', { bubbles: true }));
 }
 
+// Jenis izin sekarang dropdown <select id="izin-tipe"> (bukan chip tombol
+// sejak Fase 3, 2026-08-07).
 async function ajukanIzin(win, tipe, mulai, selesai, alasan) {
   klik(win, 'btn-buka-ajukan-izin');
   await tick(3);
-  win.document.querySelector('.chip-tipe-izin[data-tipe="' + tipe + '"]').dispatchEvent(new win.Event('click', { bubbles: true }));
+  setInputValue(win, 'izin-tipe', tipe);
   setInputValue(win, 'izin-tanggal-mulai', mulai);
   setInputValue(win, 'izin-tanggal-selesai', selesai);
   setInputValue(win, 'izin-alasan', alasan);
@@ -244,6 +270,25 @@ async function ajukanIzin(win, tipe, mulai, selesai, alasan) {
     assert.strictEqual($(win2, 'layar-setup').classList.contains('aktif'), true);
   });
 
+  await test_run('Refresh cepat (Phase 0): device kedua dgn sesi valid & cache status langsung tampil layar Absen sebelum network selesai', async function () {
+    var ls = makeLocalStorage();
+    var win1 = buatDevice(ls);
+    await setupKaryawanBaru(win1, 'OKT001', '1234');
+    await tekanTombolAbsen(win1, 'btn-absen-masuk');
+    klik(win1, 'btn-sukses-ok');
+    await tick(5);
+
+    // "Buka app lagi" — device baru pakai localStorage yg sama (sesi + cache
+    // status tersimpan dari sesi win1 di atas).
+    var win2 = buatDevice(ls);
+    // TANPA tick() sama sekali — cek layar Absen SUDAH tampil dari cache,
+    // sebelum microtask fetch pertama pun sempat resolve.
+    assert.strictEqual($(win2, 'layar-absen').classList.contains('aktif'), true);
+    assert.strictEqual($(win2, 'btn-absen-masuk').classList.contains('selesai'), true);
+    await tick(8); // biarkan validasiSesi() latar belakang selesai juga
+    assert.strictEqual($(win2, 'layar-absen').classList.contains('aktif'), true);
+  });
+
   await test_run('Kalender: hari dengan Masuk+Pulang berwarna hadir-pulang (menang atas Masuk)', async function () {
     var win = buatDevice();
     await setupKaryawanBaru(win, 'OKT001', '1234');
@@ -259,12 +304,30 @@ async function ajukanIzin(win, tipe, mulai, selesai, alasan) {
     assert.ok(selHariIni.classList.contains('hadir-pulang'));
   });
 
-  // ===================== AJUKAN IZIN (fitur baru 2026-07-30) =====================
-
-  await test_run('Ajukan Izin: submit CUTI sukses → masuk ke Pengajuan Saya berstatus Menunggu', async function () {
+  await test_run('Tombol refresh di header Absen memuat ulang status hari ini', async function () {
     var win = buatDevice();
     await setupKaryawanBaru(win, 'OKT001', '1234');
-    await ajukanIzin(win, 'CUTI', '2026-08-10', '2026-08-12', 'Pulang kampung');
+    klik(win, 'btn-refresh-absen');
+    await tick(8);
+    // tidak error & tetap di layar Absen — cukup pastikan tombol ada & jalan
+    assert.strictEqual($(win, 'layar-absen').classList.contains('aktif'), true);
+  });
+
+  // ===================== AJUKAN IZIN (dropdown, back button, kuota cuti) =====================
+
+  await test_run('Ajukan Izin: dropdown Jenis Izin cuma berisi Cuti/Sakit/Izin (Off sudah dihapus)', async function () {
+    var win = buatDevice();
+    await setupKaryawanBaru(win, 'OKT001', '1234');
+    klik(win, 'btn-buka-ajukan-izin');
+    await tick(3);
+    var opsi = Array.prototype.map.call($(win, 'izin-tipe').options, function (o) { return o.value; });
+    assert.deepStrictEqual(opsi, ['', 'CUTI', 'SAKIT', 'IZIN']);
+  });
+
+  await test_run('Ajukan Izin: submit CUTI 2 hari sukses → masuk ke Pengajuan Saya berstatus Menunggu', async function () {
+    var win = buatDevice();
+    await setupKaryawanBaru(win, 'OKT001', '1234');
+    await ajukanIzin(win, 'CUTI', '2026-08-10', '2026-08-11', 'Pulang kampung');
     assert.strictEqual($(win, 'layar-pengajuan-saya').classList.contains('aktif'), true);
     assert.ok(/berhasil dikirim/i.test($(win, 'pengajuan-pesan').textContent));
     var kartu = win.document.querySelectorAll('.kartu-pengajuan');
@@ -273,12 +336,22 @@ async function ajukanIzin(win, tipe, mulai, selesai, alasan) {
     assert.ok(kartu[0].textContent.indexOf('Menunggu') !== -1);
   });
 
+  await test_run('Ajukan Izin: CUTI lebih dari 2 hari ditolak di frontend sebelum kirim ke server', async function () {
+    var win = buatDevice();
+    await setupKaryawanBaru(win, 'OKT001', '1234');
+    await ajukanIzin(win, 'CUTI', '2026-08-10', '2026-08-13', 'Liburan panjang');
+    assert.ok(/maksimal 2 hari/i.test($(win, 'izin-error').textContent));
+    assert.strictEqual($(win, 'layar-ajukan-izin').classList.contains('aktif'), true); // belum pindah layar
+    var rows = backend.getSheetData('Pengajuan');
+    assert.strictEqual(rows.length, 1); // cuma header — tidak terkirim ke backend
+  });
+
   await test_run('Ajukan Izin: alasan kosong ditolak di frontend sebelum kirim ke server', async function () {
     var win = buatDevice();
     await setupKaryawanBaru(win, 'OKT001', '1234');
     klik(win, 'btn-buka-ajukan-izin');
     await tick(3);
-    win.document.querySelector('.chip-tipe-izin[data-tipe="SAKIT"]').dispatchEvent(new win.Event('click', { bubbles: true }));
+    setInputValue(win, 'izin-tipe', 'SAKIT');
     setInputValue(win, 'izin-tanggal-mulai', '2026-08-10');
     klik(win, 'btn-kirim-izin');
     await tick(3);
@@ -295,11 +368,41 @@ async function ajukanIzin(win, tipe, mulai, selesai, alasan) {
     assert.strictEqual($(win, 'izin-tanggal-selesai').value, '2026-08-15');
   });
 
+  await test_run('Ajukan Izin: pilih CUTI menampilkan info sisa kuota cuti', async function () {
+    var win = buatDevice();
+    await setupKaryawanBaru(win, 'OKT001', '1234');
+    klik(win, 'btn-buka-ajukan-izin');
+    await tick(3);
+    setInputValue(win, 'izin-tipe', 'CUTI');
+    await tick(8);
+    assert.strictEqual($(win, 'izin-kuota-info').classList.contains('tersembunyi'), false);
+    assert.ok(/sisa kuota cuti/i.test($(win, 'izin-kuota-info').textContent));
+  });
+
+  await test_run('Ajukan Izin: tombol back (panah) di header kembali ke layar Absen, sama seperti Batal', async function () {
+    var win = buatDevice();
+    await setupKaryawanBaru(win, 'OKT001', '1234');
+    klik(win, 'btn-buka-ajukan-izin');
+    await tick(3);
+    assert.strictEqual($(win, 'layar-ajukan-izin').classList.contains('aktif'), true);
+    klik(win, 'btn-kembali-izin');
+    await tick(3);
+    assert.strictEqual($(win, 'layar-absen').classList.contains('aktif'), true);
+  });
+
+  await test_run('Ajukan Izin: input foto TIDAK punya atribut capture (galeri jadi pilihan, bukan cuma kamera)', async function () {
+    var win = buatDevice();
+    await setupKaryawanBaru(win, 'OKT001', '1234');
+    var inputFoto = $(win, 'input-foto-izin');
+    assert.strictEqual(inputFoto.hasAttribute('capture'), false);
+    assert.strictEqual(inputFoto.getAttribute('accept'), 'image/*');
+  });
+
   await test_run('Nav Pengajuan menampilkan riwayat pengajuan (termasuk yg sudah diputuskan)', async function () {
     backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'SAKIT', tanggal_mulai: '2026-08-05', tanggal_selesai: '2026-08-05', alasan: 'Demam' });
     var rows = backend.getSheetData('Pengajuan');
     var idPengajuan = rows[1][0];
-    backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: idPengajuan, keputusan: 'DITOLAK', catatan_admin: 'Kurang bukti' });
+    backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: idPengajuan, keputusan: 'DITOLAK' });
 
     var win = buatDevice();
     await setupKaryawanBaru(win, 'OKT001', '1234');
@@ -308,7 +411,6 @@ async function ajukanIzin(win, tipe, mulai, selesai, alasan) {
     var kartu = win.document.querySelectorAll('.kartu-pengajuan');
     assert.strictEqual(kartu.length, 1);
     assert.ok(kartu[0].textContent.indexOf('Ditolak') !== -1);
-    assert.ok(kartu[0].textContent.indexOf('Kurang bukti') !== -1);
   });
 
   await test_run('Integrasi: Cuti hari ini yg sudah DISETUJUI mengunci semua tombol Hadir/Lembur & tampil di status', async function () {

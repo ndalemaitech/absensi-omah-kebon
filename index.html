@@ -68,17 +68,24 @@
 
   <!-- ============ LAYAR: UTAMA (ABSEN) ============ -->
   <section id="layar-absen" class="layar">
-    <header class="header-app">
-      <p class="sapaan">Halo,</p>
-      <p id="nama-karyawan" class="nama-besar"></p>
-      <p id="tanggal-hari-ini" class="tanggal-hari-ini"></p>
+    <header class="header-app header-absen">
+      <div>
+        <p class="sapaan">Halo,</p>
+        <p id="nama-karyawan" class="nama-besar"></p>
+        <p id="tanggal-hari-ini" class="tanggal-hari-ini"></p>
+      </div>
+      <button id="btn-refresh-absen" class="btn-icon-header" aria-label="Muat ulang">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 4v6h-6" />
+        </svg>
+      </button>
     </header>
 
     <div class="area-absen">
       <!-- 4 tombol Hadir/Lembur (data-tipe + peta warna terpusat di CSS/JS).
-           Cuti/Sakit/Izin Biasa/Off TIDAK LAGI tombol tap-langsung sejak
-           2026-07-30 — sekarang lewat form "Ajukan Izin" di bawah, butuh
-           persetujuan Owner sebelum tercatat resmi di kalender. -->
+           Cuti/Sakit/Izin TIDAK LAGI tombol tap-langsung sejak 2026-07-30 —
+           sekarang lewat form "Ajukan Izin" di bawah, butuh persetujuan
+           Owner sebelum tercatat resmi di kalender. -->
       <p id="status-absen" class="status-absen"></p>
       <div class="grid-tombol-absen">
         <button id="btn-absen-masuk" class="tombol-absen tombol-masuk" data-tipe="MASUK">
@@ -130,7 +137,7 @@
           <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
           <line x1="3" y1="13" x2="21" y2="13" />
         </svg>
-        <span>Ajukan Izin<br /><small>Cuti / Sakit / Izin Biasa / Off</small></span>
+        <span>Ajukan Izin<br /><small>Cuti / Sakit / Izin</small></span>
       </button>
     </div>
   </section>
@@ -156,18 +163,26 @@
 
   <!-- ============ LAYAR: AJUKAN IZIN ============ -->
   <section id="layar-ajukan-izin" class="layar">
-    <header class="header-app">
-      <p class="nama-besar">Ajukan Izin</p>
-      <p class="tanggal-hari-ini">Cuti, Sakit, Izin Biasa, atau Off — perlu persetujuan Owner</p>
+    <header class="header-app header-form">
+      <button id="btn-kembali-izin" class="btn-icon-header" aria-label="Kembali">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M15 18l-6-6 6-6" />
+        </svg>
+      </button>
+      <div>
+        <p class="nama-besar">Ajukan Izin</p>
+        <p class="tanggal-hari-ini">Cuti, Sakit, atau Izin — perlu persetujuan Owner</p>
+      </div>
     </header>
     <div class="form-izin">
-      <label class="label-besar">Jenis Izin</label>
-      <div class="grid-tipe-izin" id="grid-tipe-izin">
-        <button type="button" class="chip-tipe-izin chip-cuti" data-tipe="CUTI">Cuti</button>
-        <button type="button" class="chip-tipe-izin chip-sakit" data-tipe="SAKIT">Sakit</button>
-        <button type="button" class="chip-tipe-izin chip-izin_biasa" data-tipe="IZIN_BIASA">Izin Biasa</button>
-        <button type="button" class="chip-tipe-izin chip-off" data-tipe="OFF">Off</button>
-      </div>
+      <label for="izin-tipe" class="label-besar">Jenis Izin</label>
+      <select id="izin-tipe" class="select-besar select-tipe-izin">
+        <option value="">-- Pilih jenis izin --</option>
+        <option value="CUTI">Cuti (maks. 2 hari)</option>
+        <option value="SAKIT">Sakit</option>
+        <option value="IZIN">Izin</option>
+      </select>
+      <p id="izin-kuota-info" class="izin-kuota-info tersembunyi"></p>
 
       <label for="izin-tanggal-mulai" class="label-besar">Dari tanggal</label>
       <input type="date" id="izin-tanggal-mulai" class="input-tanggal" />
@@ -181,14 +196,14 @@
       <label class="label-besar">Lampiran foto (opsional)</label>
       <div class="area-lampiran">
         <button type="button" id="btn-pilih-foto" class="btn-pilih-foto">Ambil / Pilih Foto</button>
-        <input type="file" id="input-foto-izin" accept="image/*" capture="environment" class="tersembunyi" />
+        <input type="file" id="input-foto-izin" accept="image/*" class="tersembunyi" />
         <img id="preview-foto-izin" class="preview-foto tersembunyi" alt="Pratinjau lampiran" />
         <button type="button" id="btn-hapus-foto" class="btn-hapus-foto tersembunyi">Hapus foto</button>
       </div>
 
       <p id="izin-error" class="teks-error" role="alert"></p>
       <button id="btn-kirim-izin" class="btn btn-utama">KIRIM PENGAJUAN</button>
-      <button id="btn-batal-izin" class="btn btn-batal">Batal</button>
+      <button id="btn-batal-izin" class="btn btn-batal-merah">Batal</button>
     </div>
   </section>
 
@@ -223,8 +238,7 @@
         <span class="legenda-item"><span class="kotak-legenda kotak-lembur"></span> Lembur</span>
         <span class="legenda-item"><span class="kotak-legenda kotak-cuti"></span> Cuti</span>
         <span class="legenda-item"><span class="kotak-legenda kotak-sakit"></span> Sakit</span>
-        <span class="legenda-item"><span class="kotak-legenda kotak-izin_biasa"></span> Izin</span>
-        <span class="legenda-item"><span class="kotak-legenda kotak-off"></span> Off</span>
+        <span class="legenda-item"><span class="kotak-legenda kotak-izin"></span> Izin</span>
         <span class="legenda-item"><span class="kotak-legenda"></span> Tidak ada catatan</span>
       </div>
       <p id="riwayat-error" class="teks-error" role="alert"></p>

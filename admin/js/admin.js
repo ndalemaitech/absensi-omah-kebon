@@ -4,14 +4,20 @@
   'use strict';
 
   var KUNCI_SESI_ADMIN = 'absensi_omahkebon_admin_sesi';
+  // Cache profil admin — dipakai utk gambar dashboard (nama, role, tab yg
+  // kelihatan) SEKETIKA saat app dibuka, sebelum validasiSesi() ke server
+  // selesai (Phase 0: perceived-loading, sama filosofi dgn js/app.js).
+  var KUNCI_CACHE_PROFIL = 'absensi_omahkebon_admin_cache_profil';
 
   // ============ STATE ============
   var daftarAdmin = [];
+  var daftarKaryawanAktif = [];
   var adminTerpilih = null; // saat proses login, sebelum PIN dikirim
   var sesiAdmin = null; // profil lengkap admin yang sedang login
+  var tabAktifSekarang = 'lembur';
 
   var LABEL_ROLE = { OWNER: 'Owner', HR: 'HR', REKAP: 'Rekap' };
-  var LABEL_IZIN_TAMPIL = { CUTI: 'Cuti', SAKIT: 'Sakit', IZIN_BIASA: 'Izin Biasa', OFF: 'Off' };
+  var LABEL_IZIN_TAMPIL = { CUTI: 'Cuti', SAKIT: 'Sakit', IZIN: 'Izin' };
 
   // ============ ELEMEN ============
   var $ = function (id) { return document.getElementById(id); };
@@ -43,6 +49,13 @@
   function simpanSesi(s) { localStorage.setItem(KUNCI_SESI_ADMIN, JSON.stringify(s)); }
   function hapusSesi() { localStorage.removeItem(KUNCI_SESI_ADMIN); }
 
+  function getCacheProfil() {
+    try { return JSON.parse(localStorage.getItem(KUNCI_CACHE_PROFIL)); } catch (e) { return null; }
+  }
+  function simpanCacheProfil(profil) {
+    try { localStorage.setItem(KUNCI_CACHE_PROFIL, JSON.stringify(profil)); } catch (e) { /* abaikan */ }
+  }
+
   function tampilkanAdminLayar(id) {
     document.querySelectorAll('.admin-layar').forEach(function (el) {
       el.classList.toggle('admin-layar-aktif', el.id === id);
@@ -58,6 +71,12 @@
   }
 
   // ============ ALUR MULAI ============
+  //
+  // Phase 0 (perceived-loading, 2026-08-07): kalau ada sesi + cache profil
+  // tersimpan dari sesi TERAKHIR admin ini, dashboard langsung digambar dari
+  // cache (nama, role, visibilitas tab) tanpa nunggu getDaftarAdmin selesai.
+  // validasiSesi() tetap jalan di belakang layar utk konfirmasi & koreksi
+  // diam-diam kalau izin/status admin ini berubah sejak sesi terakhir.
 
   function mulai() {
     if (typeof API_URL === 'undefined' || API_URL.indexOf('PASTE_URL') !== -1) {
@@ -66,6 +85,10 @@
     }
     var sesi = getSesi();
     if (sesi && sesi.id_admin) {
+      var cache = getCacheProfil();
+      if (cache && cache.id_admin === sesi.id_admin) {
+        bukaDashboard(cache, true);
+      }
       validasiSesi(sesi);
     } else {
       muatDaftarUntukLogin();
@@ -76,19 +99,21 @@
   // filosofi dgn validasiSesi karyawan). Kalau Owner reset PIN atau ubah
   // izin/status admin ini, sesi lama otomatis mengikuti perubahan terbaru.
   function validasiSesi(sesi) {
+    var sudahTampilOptimis = $('admin-layar-dashboard').classList.contains('admin-layar-aktif');
     apiGet({ action: 'getDaftarAdmin' })
       .then(function (data) {
-        if (!data.ok) { bukaDashboard(sesi); return; }
+        if (!data.ok) { if (!sudahTampilOptimis) bukaDashboard(sesi, false); return; }
         daftarAdmin = data.admin;
         var a = daftarAdmin.filter(function (x) { return x.id_admin === sesi.id_admin; })[0];
         if (!a || a.perlu_pin_baru || a.status.toLowerCase() !== 'aktif') {
           hapusSesi();
+          localStorage.removeItem(KUNCI_CACHE_PROFIL);
           muatDaftarUntukLogin();
         } else {
-          bukaDashboard(a);
+          bukaDashboard(a, false);
         }
       })
-      .catch(function () { bukaDashboard(sesi); });
+      .catch(function () { if (!sudahTampilOptimis) bukaDashboard(sesi, false); });
   }
 
   // ============ LOGIN ============
@@ -149,7 +174,7 @@
           return;
         }
         simpanSesi(data);
-        bukaDashboard(data);
+        bukaDashboard(data, false);
       })
       .catch(function () {
         $('admin-pin-error').textContent = pesanKoneksi();
@@ -163,8 +188,18 @@
 
   $('admin-btn-keluar').addEventListener('click', function () {
     hapusSesi();
+    localStorage.removeItem(KUNCI_CACHE_PROFIL);
     sesiAdmin = null;
     muatDaftarUntukLogin();
+  });
+
+  $('admin-btn-refresh').addEventListener('click', function () {
+    this.classList.add('berputar');
+    var btn = this;
+    if (sesiAdmin) muatDataTab(tabAktifSekarang);
+    var sesi = getSesi();
+    if (sesi) validasiSesi(sesi);
+    setTimeout(function () { btn.classList.remove('berputar'); }, 500);
   });
 
   // ============ DASHBOARD ============
@@ -173,8 +208,9 @@
     return sesiAdmin.role === 'OWNER' || !!sesiAdmin[izinKey];
   }
 
-  function bukaDashboard(profil) {
+  function bukaDashboard(profil, optimis) {
     sesiAdmin = profil;
+    simpanCacheProfil(profil);
     $('admin-nama-aktif').textContent = sesiAdmin.nama;
     $('admin-role-aktif').textContent = LABEL_ROLE[sesiAdmin.role] || sesiAdmin.role;
 
@@ -183,15 +219,16 @@
     aturVisibilitasTab('lembur', bolehAkses('izin_verifikasi_lembur'));
     aturVisibilitasTab('pengajuan', bolehAkses('izin_lihat_pengajuan'));
     aturVisibilitasTab('rekap', bolehAkses('izin_lihat_rekap_gaji'));
+    aturVisibilitasTab('kuota', sesiAdmin.role === 'OWNER');
     aturVisibilitasTab('akun', sesiAdmin.role === 'OWNER');
 
-    var tabPertama = document.querySelector('.admin-tab-item:not(.admin-tab-tersembunyi)');
-    if (tabPertama) pindahTab(tabPertama.getAttribute('data-tab'));
+    if (!optimis || !document.querySelector('.admin-tab-item.aktif:not(.admin-tab-tersembunyi)')) {
+      var tabPertama = document.querySelector('.admin-tab-item:not(.admin-tab-tersembunyi)');
+      if (tabPertama) pindahTab(tabPertama.getAttribute('data-tab'));
+    }
 
     tampilkanAdminLayar('admin-layar-dashboard');
-    muatAntreanLembur();
-    muatAntreanPengajuan();
-    if (sesiAdmin.role === 'OWNER') muatDaftarAkun();
+    muatDataTab(tabAktifSekarang);
   }
 
   function aturVisibilitasTab(nama, tampil) {
@@ -200,12 +237,26 @@
   }
 
   function pindahTab(nama) {
+    tabAktifSekarang = nama;
     document.querySelectorAll('.admin-tab-item').forEach(function (el) {
       el.classList.toggle('aktif', el.getAttribute('data-tab') === nama);
     });
     document.querySelectorAll('.admin-tab-konten').forEach(function (el) {
       el.classList.toggle('aktif', el.id === 'admin-tab-' + nama);
     });
+    muatDataTab(nama);
+  }
+
+  // Muat data KHUSUS tab yang sedang aktif (bukan semua tab sekaligus) —
+  // lebih ringan & lebih cepat terasa drpd nge-fetch 4-5 tab tiap kali
+  // dashboard dibuka, terutama saat baru login/reload.
+  function muatDataTab(nama) {
+    if (!sesiAdmin) return;
+    if (nama === 'lembur') muatAntreanLembur();
+    else if (nama === 'pengajuan') muatAntreanPengajuan();
+    else if (nama === 'rekap') { muatDaftarKaryawanUntukFilter(); muatRekapGaji(); }
+    else if (nama === 'kuota') muatKuotaCuti();
+    else if (nama === 'akun') muatDaftarAkun();
   }
 
   $('admin-nav-tab').addEventListener('click', function (e) {
@@ -282,6 +333,9 @@
           var lampiran = p.lampiran_url
             ? '<a href="' + escapeHtml(p.lampiran_url) + '" target="_blank" rel="noopener">Lihat</a>'
             : '—';
+          var sisaKuota = p.tipe_izin === 'CUTI' && typeof p.sisa_kuota_cuti === 'number'
+            ? p.sisa_kuota_cuti + ' hari'
+            : '—';
           var aksi = data.bisa_putuskan
             ? '<button class="admin-btn-kecil admin-btn-setujui" data-id="' + escapeHtml(p.id_pengajuan) + '">Setujui</button> ' +
               '<button class="admin-btn-kecil admin-btn-tolak" data-id="' + escapeHtml(p.id_pengajuan) + '">Tolak</button>'
@@ -290,8 +344,9 @@
           tr.innerHTML =
             '<td>' + escapeHtml(p.nama) + '</td>' +
             '<td>' + escapeHtml(LABEL_IZIN_TAMPIL[p.tipe_izin] || p.tipe_izin) + '</td>' +
-            '<td>' + escapeHtml(rentang) + ' (' + p.jumlah_hari + ' hari)</td>' +
+            '<td>' + escapeHtml(rentang) + '</td>' +
             '<td>' + p.jumlah_hari + '</td>' +
+            '<td>' + sisaKuota + '</td>' +
             '<td class="admin-td-alasan">' + escapeHtml(p.alasan) + '</td>' +
             '<td>' + lampiran + '</td>' +
             '<td>' + escapeHtml(p.diajukan_pada) + '</td>' +
@@ -301,22 +356,20 @@
       });
   }
 
+  // TANPA prompt catatan (Fase 3, 2026-08-07) — klik Setujui/Tolak langsung
+  // eksekusi, tidak ada dialog isi catatan lagi.
   $('admin-pengajuan-tbody').addEventListener('click', function (e) {
     var btnSetuju = e.target.closest('.admin-btn-setujui');
     var btnTolak = e.target.closest('.admin-btn-tolak');
     var btn = btnSetuju || btnTolak;
     if (!btn) return;
     var keputusan = btnSetuju ? 'DISETUJUI' : 'DITOLAK';
-    var labelAksi = btnSetuju ? 'menyetujui' : 'menolak';
-    var catatan = prompt('Catatan untuk ' + labelAksi + ' pengajuan ini (opsional):', '');
-    if (catatan === null) return; // dibatalkan
     btn.disabled = true;
     apiPost({
       action: 'putuskanPengajuan',
       actor_id_admin: sesiAdmin.id_admin,
       id_pengajuan: btn.getAttribute('data-id'),
-      keputusan: keputusan,
-      catatan_admin: catatan
+      keputusan: keputusan
     }).then(function (data) {
       if (!data.ok) {
         alert(data.error || 'Gagal menyimpan keputusan.');
@@ -330,7 +383,7 @@
     });
   });
 
-  // ============ TAB: REKAP GAJI ============
+  // ============ TAB: REKAP ============
 
   function bulanIniISO() {
     var d = new Date();
@@ -339,11 +392,40 @@
   }
   $('admin-rekap-bulan').value = bulanIniISO();
 
+  var rekapDataTerakhir = [];
+
+  function muatDaftarKaryawanUntukFilter() {
+    if (daftarKaryawanAktif.length > 0) return; // cukup sekali per sesi
+    apiGet({ action: 'getKaryawan' }).then(function (data) {
+      if (!data.ok) return;
+      daftarKaryawanAktif = data.karyawan;
+      var select = $('admin-rekap-karyawan');
+      daftarKaryawanAktif.forEach(function (k) {
+        var opt = document.createElement('option');
+        opt.value = k.id_karyawan;
+        opt.textContent = k.nama;
+        select.appendChild(opt);
+      });
+    });
+  }
+
   function muatRekapGaji() {
     if (!bolehAkses('izin_lihat_rekap_gaji')) return;
-    var bulan = $('admin-rekap-bulan').value;
-    if (!bulan) return;
-    apiGet({ action: 'getRekapGaji', actor_id_admin: sesiAdmin.id_admin, bulan: bulan })
+    var params = { actor_id_admin: sesiAdmin.id_admin };
+    var dari = $('admin-rekap-dari').value;
+    var sampai = $('admin-rekap-sampai').value;
+    if (dari && sampai) {
+      params.tanggal_mulai = dari;
+      params.tanggal_selesai = sampai;
+    } else {
+      var bulan = $('admin-rekap-bulan').value;
+      if (!bulan) return;
+      params.bulan = bulan;
+    }
+    var idKaryawan = $('admin-rekap-karyawan').value;
+    if (idKaryawan) params.id_karyawan = idKaryawan;
+
+    apiGet(Object.assign({ action: 'getRekapGaji' }, params))
       .then(function (data) {
         var tbody = $('admin-rekap-tbody');
         tbody.innerHTML = '';
@@ -351,13 +433,14 @@
           $('admin-rekap-catatan').textContent = data.error || 'Gagal memuat rekap.';
           return;
         }
-        $('admin-rekap-catatan').textContent = data.catatan || '';
+        rekapDataTerakhir = data.rekap;
         data.rekap.forEach(function (r) {
           var tr = document.createElement('tr');
           tr.innerHTML =
             '<td>' + escapeHtml(r.nama) + '</td>' +
-            '<td>' + r.hari_masuk + '</td>' +
-            '<td>' + r.hari_lengkap + '</td>' +
+            '<td>' + r.hari_kerja + '</td>' +
+            '<td>' + r.hari_izin + '</td>' +
+            '<td>' + r.hari_cuti + '</td>' +
             '<td>' + formatDurasi(r.menit_lembur_terverifikasi) + '</td>';
           tbody.appendChild(tr);
         });
@@ -365,6 +448,75 @@
   }
 
   $('admin-btn-muat-rekap').addEventListener('click', muatRekapGaji);
+
+  // Export CSV — native (tanpa library), cukup buat kebutuhan sederhana ini.
+  $('admin-btn-export-csv').addEventListener('click', function () {
+    if (rekapDataTerakhir.length === 0) { alert('Tidak ada data rekap untuk diunduh. Klik Tampilkan dulu.'); return; }
+    var header = ['Nama', 'Hari Kerja', 'Izin', 'Cuti', 'Menit Lembur Terverifikasi'];
+    var baris = rekapDataTerakhir.map(function (r) {
+      return [r.nama, r.hari_kerja, r.hari_izin, r.hari_cuti, r.menit_lembur_terverifikasi]
+        .map(function (v) { return '"' + String(v).replace(/"/g, '""') + '"'; })
+        .join(',');
+    });
+    var csv = header.join(',') + '\n' + baris.join('\n');
+    var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'rekap-omahkebon-' + ($('admin-rekap-bulan').value || 'custom') + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  // Export PDF — pakai dialog cetak browser (window.print), tanpa library
+  // eksternal. Style @media print di admin.css menyembunyikan bagian selain
+  // tabel rekap supaya hasil cetak/simpan-PDF cuma berisi tabelnya.
+  $('admin-btn-export-pdf').addEventListener('click', function () {
+    if (rekapDataTerakhir.length === 0) { alert('Tidak ada data rekap untuk dicetak. Klik Tampilkan dulu.'); return; }
+    document.body.classList.add('admin-mode-cetak');
+    window.print();
+    document.body.classList.remove('admin-mode-cetak');
+  });
+
+  // ============ TAB: KUOTA CUTI KARYAWAN (khusus Owner) ============
+
+  function muatKuotaCuti() {
+    if (sesiAdmin.role !== 'OWNER') return;
+    apiGet({ action: 'getKuotaCuti', actor_id_admin: sesiAdmin.id_admin })
+      .then(function (data) {
+        var tbody = $('admin-kuota-tbody');
+        tbody.innerHTML = '';
+        if (!data.ok) return;
+        data.kuota.forEach(function (k) {
+          var tr = document.createElement('tr');
+          tr.innerHTML =
+            '<td>' + escapeHtml(k.nama) + '</td>' +
+            '<td>' + escapeHtml(k.tanggal_daftar) + '</td>' +
+            '<td>' + k.kuota_otomatis + ' hari</td>' +
+            '<td><input type="number" min="0" class="admin-input-kuota" data-id="' + escapeHtml(k.id_karyawan) + '" value="' + escapeHtml(k.override) + '" placeholder="otomatis" /></td>' +
+            '<td>' + k.terpakai + ' hari</td>' +
+            '<td>' + k.sisa + ' hari</td>' +
+            '<td><button class="admin-btn-kecil admin-btn-simpan-kuota" data-id="' + escapeHtml(k.id_karyawan) + '">Simpan</button></td>';
+          tbody.appendChild(tr);
+        });
+      });
+  }
+
+  $('admin-kuota-tbody').addEventListener('click', function (e) {
+    var btn = e.target.closest('.admin-btn-simpan-kuota');
+    if (!btn) return;
+    var id = btn.getAttribute('data-id');
+    var input = document.querySelector('.admin-input-kuota[data-id="' + id + '"]');
+    btn.disabled = true;
+    apiPost({ action: 'setKuotaCutiOverride', actor_id_admin: sesiAdmin.id_admin, id_karyawan: id, override: input.value })
+      .then(function (data) {
+        btn.disabled = false;
+        if (!data.ok) { alert(data.error || 'Gagal menyimpan.'); return; }
+        muatKuotaCuti();
+      });
+  });
 
   // ============ TAB: KELOLA AKUN ADMIN (khusus Owner) ============
 
@@ -379,7 +531,7 @@
         var aktif = a.status.toLowerCase() === 'aktif';
         tr.innerHTML =
           '<td>' + escapeHtml(a.nama) + '</td>' +
-          '<td>' + (LABEL_ROLE[a.role] || a.role) + '</td>' +
+          '<td>' + escapeHtml(LABEL_ROLE[a.role] || a.role) + '</td>' +
           '<td>' + (aktif ? 'Aktif' : 'Nonaktif') + '</td>' +
           '<td><input type="checkbox" class="admin-cek-izin" data-id="' + a.id_admin + '" data-izin="izin_lihat_pengajuan" ' + (a.izin_lihat_pengajuan ? 'checked' : '') + (a.role === 'OWNER' ? ' disabled' : '') + ' /></td>' +
           '<td><input type="checkbox" class="admin-cek-izin" data-id="' + a.id_admin + '" data-izin="izin_approve_pengajuan" ' + (a.izin_approve_pengajuan ? 'checked' : '') + (a.role === 'OWNER' ? ' disabled' : '') + ' /></td>' +
@@ -387,7 +539,7 @@
           '<td><input type="checkbox" class="admin-cek-izin" data-id="' + a.id_admin + '" data-izin="izin_lihat_rekap_gaji" ' + (a.izin_lihat_rekap_gaji ? 'checked' : '') + (a.role === 'OWNER' ? ' disabled' : '') + ' /></td>' +
           '<td>' +
             '<button class="admin-btn-kecil admin-btn-reset-pin" data-id="' + a.id_admin + '">Reset PIN</button> ' +
-            '<button class="admin-btn-kecil admin-btn-toggle-aktif" data-id="' + a.id_admin + '" data-target="' + (aktif ? 'nonaktifkan' : 'aktifkan') + '"' + (a.id_admin === sesiAdmin.id_admin ? ' disabled' : '') + '>' + (aktif ? 'Nonaktifkan' : 'Aktifkan') + '</button>' +
+            '<button class="admin-btn-kecil ' + (aktif ? 'admin-btn-toggle-merah' : '') + ' admin-btn-toggle-aktif" data-id="' + a.id_admin + '" data-target="' + (aktif ? 'nonaktifkan' : 'aktifkan') + '"' + (a.id_admin === sesiAdmin.id_admin ? ' disabled' : '') + '>' + (aktif ? 'Nonaktifkan' : 'Aktifkan') + '</button>' +
           '</td>';
         tbody.appendChild(tr);
       });
@@ -431,10 +583,14 @@
 
   $('admin-btn-tambah-akun').addEventListener('click', function () {
     var nama = $('admin-akun-nama-baru').value.trim();
-    var role = $('admin-akun-role-baru').value;
+    var role = $('admin-akun-role-baru').value.trim();
     $('admin-akun-pesan').textContent = '';
     if (!nama) {
       $('admin-akun-pesan').textContent = 'Nama wajib diisi.';
+      return;
+    }
+    if (!role) {
+      $('admin-akun-pesan').textContent = 'Role wajib diisi.';
       return;
     }
     apiPost({ action: 'adminSimpanAkun', actor_id_admin: sesiAdmin.id_admin, mode: 'tambah', nama: nama, role: role })
@@ -444,6 +600,7 @@
           return;
         }
         $('admin-akun-nama-baru').value = '';
+        $('admin-akun-role-baru').value = '';
         muatDaftarAkun();
       });
   });

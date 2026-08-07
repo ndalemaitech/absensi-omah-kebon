@@ -83,13 +83,9 @@
   border-radius: 999px;
 }
 
-.admin-btn-keluar {
-  background: var(--putih);
-  border: 2px solid var(--abu-border);
-  border-radius: 10px;
-  padding: 8px 16px;
-  font-weight: 700;
-  color: var(--teks-redup);
+.admin-header-aksi {
+  display: flex;
+  gap: 10px;
 }
 
 .admin-nav-tab {
@@ -230,8 +226,17 @@
   border: 2px solid var(--abu-border);
 }
 
-.admin-btn-toggle-aktif {
+/* Aksi destruktif (Tolak pengajuan, Nonaktifkan admin) → merah. Aksi
+   pemulihan (Aktifkan kembali) tetap hijau default .admin-btn-kecil. */
+.admin-btn-tolak,
+.admin-btn-toggle-merah {
   background: var(--merah);
+}
+
+.admin-btn-sekunder {
+  background: var(--putih);
+  color: var(--hijau-gelap);
+  border: 2px solid var(--abu-border);
 }
 
 .admin-rekap-kontrol {
@@ -242,11 +247,57 @@
   flex-wrap: wrap;
 }
 
-.admin-rekap-kontrol input[type="month"] {
+.admin-rekap-kontrol label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--teks-redup);
+}
+
+.admin-rekap-kontrol input[type="month"],
+.admin-rekap-kontrol input[type="date"],
+.admin-rekap-kontrol select {
   padding: 8px 10px;
   border-radius: 8px;
   border: 2px solid var(--abu-border);
   font-family: inherit;
+  font-size: 14px;
+}
+
+.admin-rekap-export {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.admin-input-kuota {
+  width: 90px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 2px solid var(--abu-border);
+  font-family: inherit;
+  font-size: 14px;
+}
+
+/* Cetak/Simpan PDF rekap — sembunyikan semuanya kecuali tabel rekap saat
+   mode cetak aktif (lihat window.print() di admin.js). Tanpa library PDF
+   eksternal: browser sendiri yang render "Simpan sebagai PDF" dari dialog
+   cetak sistem operasi. */
+@media print {
+  body.admin-mode-cetak .admin-header,
+  body.admin-mode-cetak .admin-nav-tab,
+  body.admin-mode-cetak .admin-judul-tab,
+  body.admin-mode-cetak .admin-keterangan,
+  body.admin-mode-cetak .admin-rekap-kontrol,
+  body.admin-mode-cetak .admin-rekap-export {
+    display: none !important;
+  }
+  body.admin-mode-cetak .admin-tab-konten:not(#admin-tab-rekap) {
+    display: none !important;
+  }
+  body.admin-mode-cetak .admin-tabel-wrap {
+    border: none;
+  }
 }
 
 .admin-form-baris {

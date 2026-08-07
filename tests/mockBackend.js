@@ -45,7 +45,7 @@ function hashPin(idPemilik, pin) {
 
 // ===================== STATE (mirip 5 tab Sheet) =====================
 
-var HEADER_KARYAWAN = ['id_karyawan', 'nama', 'pin_hash', 'status', 'tanggal_daftar'];
+var HEADER_KARYAWAN = ['id_karyawan', 'nama', 'pin_hash', 'status', 'tanggal_daftar', 'kuota_cuti_override'];
 var HEADER_ABSENSI = ['id_absen', 'id_karyawan', 'nama', 'tanggal', 'waktu', 'tipe_absen', 'latitude', 'longitude', 'jarak_dari_kantor_m', 'status_lokasi', 'catatan', 'status_verifikasi', 'diverifikasi_oleh', 'waktu_verifikasi'];
 var HEADER_CONFIG = ['key', 'value', 'keterangan'];
 var HEADER_ADMIN = ['id_admin', 'nama', 'role', 'pin_hash', 'status', 'izin_approve_pengajuan', 'izin_verifikasi_lembur', 'izin_lihat_rekap_gaji', 'tanggal_daftar', 'izin_lihat_pengajuan'];
@@ -64,8 +64,8 @@ function resetState() {
   db = {
     Karyawan: [
       HEADER_KARYAWAN.slice(),
-      ['OKT001', 'Test Rama', '', 'Aktif', today],
-      ['OKT002', 'Test Karyawan', '', 'Aktif', today]
+      ['OKT001', 'Test Rama', '', 'Aktif', today, ''],
+      ['OKT002', 'Test Karyawan', '', 'Aktif', today, '']
     ],
     Absensi: [HEADER_ABSENSI.slice()],
     Config: [
@@ -94,12 +94,15 @@ function getSheetData(name) {
 var KELOMPOK_HADIR = ['MASUK', 'PULANG'];
 var KELOMPOK_LEMBUR = ['MULAI_LEMBUR', 'SELESAI_LEMBUR'];
 var TIPE_ABSEN_LANGSUNG = KELOMPOK_HADIR.concat(KELOMPOK_LEMBUR);
-var KELOMPOK_TIDAK_HADIR = ['CUTI', 'SAKIT', 'IZIN_BIASA', 'OFF'];
+// Tipe OFF sudah dihapus (Fase 3) — cukup terwakili lewat IZIN.
+var KELOMPOK_TIDAK_HADIR = ['CUTI', 'SAKIT', 'IZIN'];
 var LABEL_TIPE = {
   MASUK: 'masuk', PULANG: 'pulang', MULAI_LEMBUR: 'mulai lembur',
-  SELESAI_LEMBUR: 'selesai lembur', CUTI: 'cuti', SAKIT: 'sakit', IZIN_BIASA: 'izin', OFF: 'off'
+  SELESAI_LEMBUR: 'selesai lembur', CUTI: 'cuti', SAKIT: 'sakit', IZIN: 'izin'
 };
-var TIPE_IZIN_VALID = ['CUTI', 'SAKIT', 'IZIN_BIASA', 'OFF'];
+var TIPE_IZIN_VALID = ['CUTI', 'SAKIT', 'IZIN'];
+var MAKS_HARI_CUTI = 2;
+var KUOTA_CUTI_TAHUNAN = 12;
 
 function normalisasiTanggal(v) { return String(v).trim(); }
 function normalisasiWaktu(v) { return String(v).trim(); }
@@ -187,7 +190,7 @@ function handleAbsen(body) {
   if (!id) return { ok: false, error: 'id_karyawan wajib diisi.' };
   if (TIPE_ABSEN_LANGSUNG.indexOf(tipe) === -1) {
     if (KELOMPOK_TIDAK_HADIR.indexOf(tipe) !== -1) {
-      return { ok: false, error: 'Cuti/Sakit/Izin/Off sekarang lewat menu "Ajukan Izin", bukan absen langsung.' };
+      return { ok: false, error: 'Cuti/Sakit/Izin sekarang lewat menu "Ajukan Izin", bukan absen langsung.' };
     }
     return { ok: false, error: 'tipe_absen tidak dikenal: ' + tipe };
   }
@@ -366,6 +369,9 @@ function buatIdAdminBaru(rows) {
   return 'ADM' + nomorStr;
 }
 
+// Role SEKARANG BEBAS TEKS (Fase 3) — role persis OWNER/HR/REKAP tetap dapat
+// default izin lama (kompatibel ke belakang), role custom lain default SEMUA
+// izin OFF (Owner tinggal centang manual dari tabel Kelola Akun).
 function handleAdminSimpanAkun(body) {
   var actorId = String(body.actor_id_admin || '').trim();
   var cek = requireOwner(actorId);
@@ -378,10 +384,17 @@ function handleAdminSimpanAkun(body) {
     var nama = String(body.nama || '').trim();
     var role = String(body.role || '').trim().toUpperCase();
     if (!nama) return { ok: false, error: 'Nama wajib diisi.' };
-    if (['OWNER', 'HR', 'REKAP'].indexOf(role) === -1) return { ok: false, error: 'Role tidak dikenal: ' + role };
+    if (!role) return { ok: false, error: 'Role wajib diisi.' };
     var idBaru = buatIdAdminBaru(rows);
     var today = formatTanggal(mockNow);
-    db.Admin.push([idBaru, nama, role, '', 'Aktif', role === 'OWNER', role === 'OWNER' || role === 'REKAP', role === 'OWNER' || role === 'REKAP', today, role === 'OWNER' || role === 'HR']);
+    db.Admin.push([
+      idBaru, nama, role, '', 'Aktif',
+      role === 'OWNER',
+      role === 'OWNER' || role === 'REKAP',
+      role === 'OWNER' || role === 'REKAP',
+      today,
+      role === 'OWNER' || role === 'HR'
+    ]);
     return { ok: true, id_admin: idBaru };
   }
 
@@ -470,29 +483,46 @@ function handleVerifikasiLembur(body) {
   return { ok: true };
 }
 
-function handleGetRekapGaji(actorId, bulan) {
+// Rekap — SELARAS Code.gs handleGetRekapGaji: kolom baru hari_kerja/hari_izin/
+// hari_cuti/menit_lembur_terverifikasi, filter bulan ATAU rentang custom
+// (tanggal_mulai+tanggal_selesai), plus id_karyawan opsional.
+function handleGetRekapGaji(actorId, params) {
   var cek = requireIzin(String(actorId || '').trim(), 'izin_lihat_rekap_gaji');
   if (!cek.ok) return cek;
-  bulan = String(bulan || '').trim();
-  if (!/^\d{4}-\d{2}$/.test(bulan)) return { ok: false, error: 'Parameter bulan (YYYY-MM) wajib.' };
+  params = params || {};
+
+  var bulan = String(params.bulan || '').trim();
+  var tanggalMulaiFilter = String(params.tanggal_mulai || '').trim();
+  var tanggalSelesaiFilter = String(params.tanggal_selesai || '').trim();
+  var idKaryawanFilter = String(params.id_karyawan || '').trim();
+  var pakaiRentangCustom = /^\d{4}-\d{2}-\d{2}$/.test(tanggalMulaiFilter) && /^\d{4}-\d{2}-\d{2}$/.test(tanggalSelesaiFilter);
+
+  if (!pakaiRentangCustom && !/^\d{4}-\d{2}$/.test(bulan)) {
+    return { ok: false, error: 'Parameter bulan (YYYY-MM), atau tanggal_mulai+tanggal_selesai, wajib.' };
+  }
 
   var karyawanRows = db.Karyawan;
   var rekap = {};
   for (var i = 1; i < karyawanRows.length; i++) {
     var idK = String(karyawanRows[i][0]).trim();
     if (!idK) continue;
-    rekap[idK] = { id_karyawan: idK, nama: String(karyawanRows[i][1]).trim(), hari_masuk: 0, hari_lengkap: 0, menit_lembur_terverifikasi: 0 };
+    if (idKaryawanFilter && idK !== idKaryawanFilter) continue;
+    rekap[idK] = { id_karyawan: idK, nama: String(karyawanRows[i][1]).trim(), hari_kerja: 0, hari_izin: 0, hari_cuti: 0, menit_lembur_terverifikasi: 0 };
   }
   var rows = db.Absensi;
   var lemburPerHari = {};
   for (var j = 1; j < rows.length; j++) {
     var idKar = String(rows[j][1]).trim();
-    var tgl = normalisasiTanggal(rows[j][3]);
-    if (tgl.substring(0, 7) !== bulan) continue;
     if (!rekap[idKar]) continue;
+    var tgl = normalisasiTanggal(rows[j][3]);
+    var cocokRentang = pakaiRentangCustom
+      ? (tgl >= tanggalMulaiFilter && tgl <= tanggalSelesaiFilter)
+      : (tgl.substring(0, 7) === bulan);
+    if (!cocokRentang) continue;
     var tipe = String(rows[j][5]).trim().toUpperCase();
-    if (tipe === 'MASUK') rekap[idKar].hari_masuk += 1;
-    if (tipe === 'PULANG') rekap[idKar].hari_lengkap += 1;
+    if (tipe === 'MASUK') rekap[idKar].hari_kerja += 1;
+    if (tipe === 'SAKIT' || tipe === 'IZIN') rekap[idKar].hari_izin += 1;
+    if (tipe === 'CUTI') rekap[idKar].hari_cuti += 1;
     if (tipe === 'MULAI_LEMBUR' || tipe === 'SELESAI_LEMBUR') {
       var key = idKar + '|' + tgl;
       if (!lemburPerHari[key]) lemburPerHari[key] = { id_karyawan: idKar };
@@ -510,7 +540,7 @@ function handleGetRekapGaji(actorId, bulan) {
   var hasil = [];
   for (var idK2 in rekap) hasil.push(rekap[idK2]);
   hasil.sort(function (a, b) { return a.nama < b.nama ? -1 : a.nama > b.nama ? 1 : 0; });
-  return { ok: true, bulan: bulan, rekap: hasil, catatan: 'Belum termasuk hari Cuti/Sakit/Izin/Off — bisa ditambahkan setelah field final disepakati.' };
+  return { ok: true, bulan: bulan, rekap: hasil };
 }
 
 // ---------- pengajuan izin ----------
@@ -566,6 +596,9 @@ function handleAjukanIzin(body) {
   if (karyawan.status.toLowerCase() !== 'aktif') return { ok: false, error: 'Karyawan sudah tidak aktif. Hubungi admin.' };
 
   var jumlahHari = hitungJumlahHari(tanggalMulai, tanggalSelesai);
+  if (tipeIzin === 'CUTI' && jumlahHari > MAKS_HARI_CUTI) {
+    return { ok: false, error: 'Cuti maksimal ' + MAKS_HARI_CUTI + ' hari per pengajuan.' };
+  }
   if (jumlahHari > 31) return { ok: false, error: 'Rentang tanggal terlalu panjang (maks 31 hari per pengajuan).' };
 
   var rows = db.Pengajuan;
@@ -612,12 +645,15 @@ function handleGetAntreanPengajuan(actorId) {
   for (var i = 1; i < rows.length; i++) {
     var p = pengajuanDariBaris(rows[i]);
     if (p.status !== 'PENDING') continue;
+    if (p.tipe_izin === 'CUTI') p.sisa_kuota_cuti = hitungKuotaCutiKaryawan(p.id_karyawan).sisa;
     hasil.push(p);
   }
   hasil.sort(function (a, b) { return a.diajukan_pada < b.diajukan_pada ? -1 : 1; });
   return { ok: true, antrean: hasil, bisa_putuskan: cek.admin.role === 'OWNER' || !!cek.admin.izin_approve_pengajuan };
 }
 
+// TANPA catatan admin (Fase 3) — Setujui/Tolak langsung eksekusi, tidak ada
+// dialog isi catatan.
 function handlePutuskanPengajuan(body) {
   var actorId = String(body.actor_id_admin || '').trim();
   var cek = requireIzin(actorId, 'izin_approve_pengajuan');
@@ -625,7 +661,6 @@ function handlePutuskanPengajuan(body) {
 
   var idPengajuan = String(body.id_pengajuan || '').trim();
   var keputusan = String(body.keputusan || '').trim().toUpperCase();
-  var catatan = String(body.catatan_admin || '').trim();
   if (['DISETUJUI', 'DITOLAK'].indexOf(keputusan) === -1) return { ok: false, error: 'Keputusan harus DISETUJUI atau DITOLAK.' };
 
   var rows = db.Pengajuan;
@@ -641,7 +676,6 @@ function handlePutuskanPengajuan(body) {
   rows[rowIdx][9] = keputusan;
   rows[rowIdx][11] = cek.admin.nama;
   rows[rowIdx][12] = waktuKeputusan;
-  rows[rowIdx][13] = catatan;
 
   var tanggalDitulis = [];
   var tanggalDilewati = [];
@@ -659,6 +693,90 @@ function handlePutuskanPengajuan(body) {
   return { ok: true, status: keputusan, tanggal_ditulis: tanggalDitulis, tanggal_dilewati: tanggalDilewati };
 }
 
+// ---------- kuota cuti ----------
+
+// Otomatis: 0 hari kalau belum genap 1 tahun kerja (TIDAK pro-rata), 12 hari
+// begitu sudah lewat 1 tahun. Tidak carry-over (hangus tiap tahun kalender).
+function hitungKuotaOtomatis(tanggalDaftar) {
+  if (!tanggalDaftar) return 0;
+  var mulai = new Date(String(tanggalDaftar) + 'T00:00:00');
+  var sekarang = mockNow;
+  var tahunKerja = (sekarang.getTime() - mulai.getTime()) / (365 * 86400000);
+  return tahunKerja >= 1 ? KUOTA_CUTI_TAHUNAN : 0;
+}
+
+function hitungKuotaCutiKaryawan(idKaryawan) {
+  var rows = db.Karyawan;
+  var tanggalDaftar = '', override = '';
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() !== idKaryawan) continue;
+    tanggalDaftar = String(rows[i][4]).trim();
+    override = rows[i].length > 5 ? String(rows[i][5]).trim() : '';
+    break;
+  }
+  var kuotaOtomatis = hitungKuotaOtomatis(tanggalDaftar);
+  var kuota = (override !== '' && !isNaN(Number(override))) ? Number(override) : kuotaOtomatis;
+
+  var tahunIni = mockNow.getFullYear();
+  var terpakai = 0;
+  var pengajuanRows = db.Pengajuan;
+  for (var j = 1; j < pengajuanRows.length; j++) {
+    if (String(pengajuanRows[j][1]).trim() !== idKaryawan) continue;
+    if (String(pengajuanRows[j][3]).trim().toUpperCase() !== 'CUTI') continue;
+    if (String(pengajuanRows[j][9]).trim() !== 'DISETUJUI') continue;
+    var tglMulai = normalisasiTanggal(pengajuanRows[j][4]);
+    if (new Date(tglMulai + 'T00:00:00').getFullYear() !== tahunIni) continue;
+    terpakai += Number(pengajuanRows[j][6]) || 0;
+  }
+
+  return { kuota: kuota, kuota_otomatis: kuotaOtomatis, override: override, terpakai: terpakai, sisa: kuota - terpakai };
+}
+
+function handleGetKuotaCuti(actorId) {
+  var cek = requireOwner(String(actorId || '').trim());
+  if (!cek.ok) return cek;
+  var rows = db.Karyawan;
+  var hasil = [];
+  for (var i = 1; i < rows.length; i++) {
+    if (!rows[i][0]) continue;
+    if (String(rows[i][3]).trim().toLowerCase() !== 'aktif') continue;
+    var idK = String(rows[i][0]).trim();
+    var info = hitungKuotaCutiKaryawan(idK);
+    hasil.push({
+      id_karyawan: idK, nama: String(rows[i][1]).trim(), tanggal_daftar: normalisasiTanggal(rows[i][4]),
+      kuota: info.kuota, kuota_otomatis: info.kuota_otomatis, override: info.override, terpakai: info.terpakai, sisa: info.sisa
+    });
+  }
+  hasil.sort(function (a, b) { return a.nama < b.nama ? -1 : a.nama > b.nama ? 1 : 0; });
+  return { ok: true, kuota: hasil };
+}
+
+function handleSetKuotaCutiOverride(body) {
+  var actorId = String(body.actor_id_admin || '').trim();
+  var cek = requireOwner(actorId);
+  if (!cek.ok) return cek;
+  var idKaryawan = String(body.id_karyawan || '').trim();
+  var override = body.override === undefined || body.override === null ? '' : String(body.override).trim();
+  if (override !== '' && isNaN(Number(override))) return { ok: false, error: 'Jatah cuti harus berupa angka (atau kosongkan utk pakai otomatis).' };
+
+  var rows = db.Karyawan;
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() !== idKaryawan) continue;
+    rows[i][5] = override;
+    return { ok: true };
+  }
+  return { ok: false, error: 'Karyawan tidak ditemukan.' };
+}
+
+function handleGetKuotaCutiSaya(idKaryawan) {
+  var id = String(idKaryawan || '').trim();
+  if (!id) return { ok: false, error: 'id_karyawan wajib diisi.' };
+  var karyawan = findKaryawan(id);
+  if (!karyawan) return { ok: false, error: 'Karyawan tidak ditemukan.' };
+  var info = hitungKuotaCutiKaryawan(id);
+  return { ok: true, kuota: info.kuota, terpakai: info.terpakai, sisa: info.sisa };
+}
+
 // ===================== ROUTING (mirip doGet/doPost) =====================
 
 function doGet(params) {
@@ -667,9 +785,11 @@ function doGet(params) {
   if (action === 'riwayat') return handleRiwayat(params);
   if (action === 'getDaftarAdmin') return handleGetDaftarAdmin();
   if (action === 'getAntreanLembur') return handleGetAntreanLembur(params.actor_id_admin);
-  if (action === 'getRekapGaji') return handleGetRekapGaji(params.actor_id_admin, params.bulan);
+  if (action === 'getRekapGaji') return handleGetRekapGaji(params.actor_id_admin, params);
   if (action === 'getPengajuanSaya') return handleGetPengajuanSaya(params.id_karyawan);
   if (action === 'getAntreanPengajuan') return handleGetAntreanPengajuan(params.actor_id_admin);
+  if (action === 'getKuotaCuti') return handleGetKuotaCuti(params.actor_id_admin);
+  if (action === 'getKuotaCutiSaya') return handleGetKuotaCutiSaya(params.id_karyawan);
   return { ok: false, error: 'Action tidak dikenal: ' + action };
 }
 
@@ -683,6 +803,7 @@ function doPost(body) {
   if (action === 'verifikasiLembur') return handleVerifikasiLembur(body);
   if (action === 'ajukanIzin') return handleAjukanIzin(body);
   if (action === 'putuskanPengajuan') return handlePutuskanPengajuan(body);
+  if (action === 'setKuotaCutiOverride') return handleSetKuotaCutiOverride(body);
   return { ok: false, error: 'Action tidak dikenal: ' + action };
 }
 
@@ -690,6 +811,7 @@ module.exports = {
   resetState: resetState,
   setNow: setNow,
   getSheetData: getSheetData,
+  hitungKuotaCutiKaryawan: hitungKuotaCutiKaryawan,
   doGet: doGet,
   doPost: doPost
 };
