@@ -12,7 +12,13 @@
 .admin-layar {
   display: none;
   min-height: 100vh;
-  padding: 24px 20px 60px;
+  padding: 16px 14px 60px;
+}
+
+@media (min-width: 700px) {
+  .admin-layar {
+    padding: 24px 20px 60px;
+  }
 }
 
 .admin-layar-aktif {
@@ -61,10 +67,34 @@
 
 .admin-header {
   max-width: 1000px;
-  margin: 0 auto 18px;
+  margin: -16px -14px 16px;
+  padding: 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--latar);
+  border-bottom: 1px solid var(--abu-border);
+}
+
+.admin-header > div:first-child {
+  min-width: 0;
+}
+
+.admin-header > div:first-child p {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (min-width: 700px) {
+  .admin-header {
+    margin: -24px -20px 18px;
+    padding: 16px 20px;
+  }
 }
 
 .admin-sapaan {
@@ -92,16 +122,33 @@
   max-width: 1000px;
   margin: 0 auto 20px;
   display: flex;
-  flex-wrap: wrap;
   gap: 8px;
-  border-bottom: 2px solid var(--abu-border);
-  padding-bottom: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding: 2px 2px 12px;
+}
+
+.admin-nav-tab::-webkit-scrollbar {
+  display: none;
+}
+
+@media (min-width: 700px) {
+  .admin-nav-tab {
+    flex-wrap: wrap;
+    overflow: visible;
+    border-bottom: 2px solid var(--abu-border);
+    padding: 0 0 10px;
+  }
 }
 
 .admin-tab-item {
+  flex-shrink: 0;
+  white-space: nowrap;
   background: var(--putih);
   border: 2px solid var(--abu-border);
-  border-radius: 10px;
+  border-radius: 999px;
   padding: 9px 16px;
   font-weight: 700;
   font-size: 14px;
@@ -169,6 +216,11 @@
 }
 
 /* ---- Tabel ---- */
+/* Desktop (>=700px): tabel biasa. Mobile (<700px): tiap <tr> jadi kartu
+   berdiri sendiri, tiap <td> jadi baris "label: value" — label diambil dari
+   atribut data-label yang di-set admin.js saat render (lihat CATATAN-DATA-LABEL
+   di README). Struktur <table><tr><td> TIDAK berubah sama sekali, jadi aman
+   utk e2e test (query tbody/tr/td tetap match) — murni transformasi CSS. */
 
 .admin-tabel-wrap {
   overflow-x: auto;
@@ -201,6 +253,98 @@
   border-bottom: none;
 }
 
+@media (max-width: 699px) {
+  .admin-tabel-wrap {
+    overflow-x: visible;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+  }
+
+  .admin-tabel,
+  .admin-tabel thead,
+  .admin-tabel tbody,
+  .admin-tabel tr {
+    display: block;
+    width: 100%;
+  }
+
+  .admin-tabel thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .admin-tabel tbody tr {
+    background: var(--putih);
+    border: 2px solid var(--abu-border);
+    border-radius: var(--radius);
+    padding: 4px 14px;
+    margin-bottom: 12px;
+  }
+
+  .admin-tabel td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    white-space: normal;
+    text-align: right;
+  }
+
+  .admin-tabel td[data-label]::before {
+    content: attr(data-label);
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--teks-redup);
+    text-align: left;
+    flex-shrink: 0;
+  }
+
+  /* Sel tanpa label (kolom aksi/tombol) → full width, tombol rata kanan. */
+  .admin-tabel td:not([data-label]) {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .admin-td-alasan {
+    text-align: left !important;
+    flex-direction: column;
+    align-items: flex-start !important;
+  }
+}
+
+/* Print (Cetak/Simpan PDF Rekap) selalu pakai layout tabel asli, terlepas
+   dari lebar layar saat tombol Cetak diklik. */
+@media print {
+  .admin-tabel-wrap,
+  .admin-tabel,
+  .admin-tabel thead,
+  .admin-tabel tbody,
+  .admin-tabel tr,
+  .admin-tabel th,
+  .admin-tabel td {
+    display: revert !important;
+    position: static !important;
+    width: auto !important;
+    height: auto !important;
+    clip: auto !important;
+    overflow: visible !important;
+    background: revert !important;
+    border: revert !important;
+    padding: revert !important;
+    margin: revert !important;
+    text-align: left !important;
+  }
+  .admin-tabel td[data-label]::before {
+    content: none !important;
+  }
+}
+
 /* ---- Kontrol kecil ---- */
 
 .admin-btn-kecil {
@@ -208,8 +352,16 @@
   color: var(--putih);
   border-radius: 8px;
   padding: 7px 14px;
+  min-height: 36px;
   font-weight: 700;
   font-size: 13px;
+}
+
+@media (max-width: 699px) {
+  .admin-btn-kecil {
+    min-height: 40px;
+    padding: 8px 16px;
+  }
 }
 
 .admin-btn-kecil:active {
@@ -240,27 +392,75 @@
 }
 
 .admin-rekap-kontrol {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
   margin-bottom: 14px;
-  flex-wrap: wrap;
+  background: var(--putih);
+  border: 2px solid var(--abu-border);
+  border-radius: var(--radius);
+  padding: 14px;
 }
 
 .admin-rekap-kontrol label {
+  display: block;
   font-size: 13px;
   font-weight: 700;
   color: var(--teks-redup);
+  margin-bottom: 4px;
 }
 
 .admin-rekap-kontrol input[type="month"],
 .admin-rekap-kontrol input[type="date"],
 .admin-rekap-kontrol select {
-  padding: 8px 10px;
+  width: 100%;
+  padding: 10px;
   border-radius: 8px;
   border: 2px solid var(--abu-border);
   font-family: inherit;
   font-size: 14px;
+}
+
+.admin-rekap-kontrol span {
+  display: none;
+}
+
+.admin-rekap-kontrol #admin-btn-muat-rekap {
+  width: 100%;
+  padding: 12px;
+  font-size: 15px;
+}
+
+@media (min-width: 700px) {
+  .admin-rekap-kontrol {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 0;
+    background: transparent;
+    border: none;
+  }
+
+  .admin-rekap-kontrol label {
+    margin-bottom: 0;
+  }
+
+  .admin-rekap-kontrol input[type="month"],
+  .admin-rekap-kontrol input[type="date"],
+  .admin-rekap-kontrol select {
+    width: auto;
+    padding: 8px 10px;
+  }
+
+  .admin-rekap-kontrol span {
+    display: inline;
+  }
+
+  .admin-rekap-kontrol #admin-btn-muat-rekap {
+    width: auto;
+    padding: 7px 14px;
+    font-size: 13px;
+  }
 }
 
 .admin-rekap-export {
@@ -268,6 +468,17 @@
   gap: 10px;
   margin-top: 14px;
   flex-wrap: wrap;
+}
+
+.admin-rekap-export .admin-btn-kecil {
+  flex: 1;
+  text-align: center;
+}
+
+@media (min-width: 700px) {
+  .admin-rekap-export .admin-btn-kecil {
+    flex: none;
+  }
 }
 
 .admin-input-kuota {
@@ -307,12 +518,31 @@
   align-items: center;
 }
 
+@media (max-width: 699px) {
+  .admin-form-baris {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .admin-form-baris #admin-btn-tambah-akun {
+    padding: 12px;
+    font-size: 15px;
+  }
+}
+
 .admin-input-teks {
+  width: 100%;
   padding: 10px 12px;
   border-radius: 8px;
   border: 2px solid var(--abu-border);
   font-family: inherit;
   font-size: 14px;
+}
+
+@media (min-width: 700px) {
+  .admin-input-teks {
+    width: auto;
+  }
 }
 
 .admin-form-vertikal {

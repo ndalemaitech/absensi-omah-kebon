@@ -284,11 +284,11 @@
         data.antrean.forEach(function (s) {
           var tr = document.createElement('tr');
           tr.innerHTML =
-            '<td>' + escapeHtml(s.nama) + '</td>' +
-            '<td>' + escapeHtml(s.tanggal) + '</td>' +
-            '<td>' + escapeHtml(s.mulai.substring(0, 5)) + '</td>' +
-            '<td>' + escapeHtml(s.selesai.substring(0, 5)) + '</td>' +
-            '<td>' + formatDurasi(s.durasi_menit) + '</td>' +
+            '<td data-label="Nama">' + escapeHtml(s.nama) + '</td>' +
+            '<td data-label="Tanggal">' + escapeHtml(s.tanggal) + '</td>' +
+            '<td data-label="Mulai">' + escapeHtml(s.mulai.substring(0, 5)) + '</td>' +
+            '<td data-label="Selesai">' + escapeHtml(s.selesai.substring(0, 5)) + '</td>' +
+            '<td data-label="Durasi">' + formatDurasi(s.durasi_menit) + '</td>' +
             '<td><button class="admin-btn-kecil admin-btn-verifikasi" data-id="' + escapeHtml(s.id_karyawan) + '" data-tanggal="' + escapeHtml(s.tanggal) + '">Verifikasi</button></td>';
           tbody.appendChild(tr);
         });
@@ -342,14 +342,14 @@
             : '<span class="admin-teks-redup-kecil">Lihat saja</span>';
           var tr = document.createElement('tr');
           tr.innerHTML =
-            '<td>' + escapeHtml(p.nama) + '</td>' +
-            '<td>' + escapeHtml(LABEL_IZIN_TAMPIL[p.tipe_izin] || p.tipe_izin) + '</td>' +
-            '<td>' + escapeHtml(rentang) + '</td>' +
-            '<td>' + p.jumlah_hari + '</td>' +
-            '<td>' + sisaKuota + '</td>' +
-            '<td class="admin-td-alasan">' + escapeHtml(p.alasan) + '</td>' +
-            '<td>' + lampiran + '</td>' +
-            '<td>' + escapeHtml(p.diajukan_pada) + '</td>' +
+            '<td data-label="Nama">' + escapeHtml(p.nama) + '</td>' +
+            '<td data-label="Jenis">' + escapeHtml(LABEL_IZIN_TAMPIL[p.tipe_izin] || p.tipe_izin) + '</td>' +
+            '<td data-label="Tanggal">' + escapeHtml(rentang) + '</td>' +
+            '<td data-label="Hari">' + p.jumlah_hari + '</td>' +
+            '<td data-label="Sisa Kuota Cuti">' + sisaKuota + '</td>' +
+            '<td class="admin-td-alasan" data-label="Alasan">' + escapeHtml(p.alasan) + '</td>' +
+            '<td data-label="Lampiran">' + lampiran + '</td>' +
+            '<td data-label="Diajukan">' + escapeHtml(p.diajukan_pada) + '</td>' +
             '<td>' + aksi + '</td>';
           tbody.appendChild(tr);
         });
@@ -437,11 +437,11 @@
         data.rekap.forEach(function (r) {
           var tr = document.createElement('tr');
           tr.innerHTML =
-            '<td>' + escapeHtml(r.nama) + '</td>' +
-            '<td>' + r.hari_kerja + '</td>' +
-            '<td>' + r.hari_izin + '</td>' +
-            '<td>' + r.hari_cuti + '</td>' +
-            '<td>' + formatDurasi(r.menit_lembur_terverifikasi) + '</td>';
+            '<td data-label="Nama">' + escapeHtml(r.nama) + '</td>' +
+            '<td data-label="Hari Kerja">' + r.hari_kerja + '</td>' +
+            '<td data-label="Izin">' + r.hari_izin + '</td>' +
+            '<td data-label="Cuti">' + r.hari_cuti + '</td>' +
+            '<td data-label="Jam Lembur Terverifikasi">' + formatDurasi(r.menit_lembur_terverifikasi) + '</td>';
           tbody.appendChild(tr);
         });
       });
@@ -492,12 +492,12 @@
         data.kuota.forEach(function (k) {
           var tr = document.createElement('tr');
           tr.innerHTML =
-            '<td>' + escapeHtml(k.nama) + '</td>' +
-            '<td>' + escapeHtml(k.tanggal_daftar) + '</td>' +
-            '<td>' + k.kuota_otomatis + ' hari</td>' +
-            '<td><input type="number" min="0" class="admin-input-kuota" data-id="' + escapeHtml(k.id_karyawan) + '" value="' + escapeHtml(k.override) + '" placeholder="otomatis" /></td>' +
-            '<td>' + k.terpakai + ' hari</td>' +
-            '<td>' + k.sisa + ' hari</td>' +
+            '<td data-label="Nama">' + escapeHtml(k.nama) + '</td>' +
+            '<td data-label="Tanggal Daftar">' + escapeHtml(k.tanggal_daftar) + '</td>' +
+            '<td data-label="Kuota Otomatis">' + k.kuota_otomatis + ' hari</td>' +
+            '<td data-label="Override"><input type="number" min="0" class="admin-input-kuota" data-id="' + escapeHtml(k.id_karyawan) + '" value="' + escapeHtml(k.override) + '" placeholder="otomatis" /></td>' +
+            '<td data-label="Terpakai Thn Ini">' + k.terpakai + ' hari</td>' +
+            '<td data-label="Sisa">' + k.sisa + ' hari</td>' +
             '<td><button class="admin-btn-kecil admin-btn-simpan-kuota" data-id="' + escapeHtml(k.id_karyawan) + '">Simpan</button></td>';
           tbody.appendChild(tr);
         });
@@ -530,13 +530,13 @@
         var tr = document.createElement('tr');
         var aktif = a.status.toLowerCase() === 'aktif';
         tr.innerHTML =
-          '<td>' + escapeHtml(a.nama) + '</td>' +
-          '<td>' + escapeHtml(LABEL_ROLE[a.role] || a.role) + '</td>' +
-          '<td>' + (aktif ? 'Aktif' : 'Nonaktif') + '</td>' +
-          '<td><input type="checkbox" class="admin-cek-izin" data-id="' + a.id_admin + '" data-izin="izin_lihat_pengajuan" ' + (a.izin_lihat_pengajuan ? 'checked' : '') + (a.role === 'OWNER' ? ' disabled' : '') + ' /></td>' +
-          '<td><input type="checkbox" class="admin-cek-izin" data-id="' + a.id_admin + '" data-izin="izin_approve_pengajuan" ' + (a.izin_approve_pengajuan ? 'checked' : '') + (a.role === 'OWNER' ? ' disabled' : '') + ' /></td>' +
-          '<td><input type="checkbox" class="admin-cek-izin" data-id="' + a.id_admin + '" data-izin="izin_verifikasi_lembur" ' + (a.izin_verifikasi_lembur ? 'checked' : '') + (a.role === 'OWNER' ? ' disabled' : '') + ' /></td>' +
-          '<td><input type="checkbox" class="admin-cek-izin" data-id="' + a.id_admin + '" data-izin="izin_lihat_rekap_gaji" ' + (a.izin_lihat_rekap_gaji ? 'checked' : '') + (a.role === 'OWNER' ? ' disabled' : '') + ' /></td>' +
+          '<td data-label="Nama">' + escapeHtml(a.nama) + '</td>' +
+          '<td data-label="Role">' + escapeHtml(LABEL_ROLE[a.role] || a.role) + '</td>' +
+          '<td data-label="Status">' + (aktif ? 'Aktif' : 'Nonaktif') + '</td>' +
+          '<td data-label="Lihat Pengajuan"><input type="checkbox" class="admin-cek-izin" data-id="' + a.id_admin + '" data-izin="izin_lihat_pengajuan" ' + (a.izin_lihat_pengajuan ? 'checked' : '') + (a.role === 'OWNER' ? ' disabled' : '') + ' /></td>' +
+          '<td data-label="Approve Pengajuan"><input type="checkbox" class="admin-cek-izin" data-id="' + a.id_admin + '" data-izin="izin_approve_pengajuan" ' + (a.izin_approve_pengajuan ? 'checked' : '') + (a.role === 'OWNER' ? ' disabled' : '') + ' /></td>' +
+          '<td data-label="Verifikasi Lembur"><input type="checkbox" class="admin-cek-izin" data-id="' + a.id_admin + '" data-izin="izin_verifikasi_lembur" ' + (a.izin_verifikasi_lembur ? 'checked' : '') + (a.role === 'OWNER' ? ' disabled' : '') + ' /></td>' +
+          '<td data-label="Lihat Rekap"><input type="checkbox" class="admin-cek-izin" data-id="' + a.id_admin + '" data-izin="izin_lihat_rekap_gaji" ' + (a.izin_lihat_rekap_gaji ? 'checked' : '') + (a.role === 'OWNER' ? ' disabled' : '') + ' /></td>' +
           '<td>' +
             '<button class="admin-btn-kecil admin-btn-reset-pin" data-id="' + a.id_admin + '">Reset PIN</button> ' +
             '<button class="admin-btn-kecil ' + (aktif ? 'admin-btn-toggle-merah' : '') + ' admin-btn-toggle-aktif" data-id="' + a.id_admin + '" data-target="' + (aktif ? 'nonaktifkan' : 'aktifkan') + '"' + (a.id_admin === sesiAdmin.id_admin ? ' disabled' : '') + '>' + (aktif ? 'Nonaktifkan' : 'Aktifkan') + '</button>' +
