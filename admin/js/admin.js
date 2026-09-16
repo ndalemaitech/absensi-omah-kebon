@@ -473,11 +473,24 @@
   // Export PDF — pakai dialog cetak browser (window.print), tanpa library
   // eksternal. Style @media print di admin.css menyembunyikan bagian selain
   // tabel rekap supaya hasil cetak/simpan-PDF cuma berisi tabelnya.
+  //
+  // window.print() BLOCKING di desktop (baris setelahnya baru jalan setelah
+  // dialog ditutup), tapi TIDAK blocking di mobile Safari/Chrome (langsung
+  // return, print/share sheet muncul async) — kalau class 'admin-mode-cetak'
+  // langsung dihapus sesudahnya spt sebelumnya, di mobile class itu sudah
+  // hilang duluan sebelum sistem sempat render tampilan cetaknya, hasilnya
+  // dialog cetak nongol tapi isinya masih tampilan dashboard biasa (bukan
+  // cuma tabel). Solusi: kasih jeda kecil sebelum & sesudah print() — bukan
+  // gantung ke event 'afterprint' krn dukungannya tidak konsisten di iOS.
   $('admin-btn-export-pdf').addEventListener('click', function () {
     if (rekapDataTerakhir.length === 0) { alert('Tidak ada data rekap untuk dicetak. Klik Tampilkan dulu.'); return; }
     document.body.classList.add('admin-mode-cetak');
-    window.print();
-    document.body.classList.remove('admin-mode-cetak');
+    setTimeout(function () {
+      window.print();
+      setTimeout(function () {
+        document.body.classList.remove('admin-mode-cetak');
+      }, 500);
+    }, 50);
   });
 
   // ============ TAB: KUOTA CUTI KARYAWAN (khusus Owner) ============

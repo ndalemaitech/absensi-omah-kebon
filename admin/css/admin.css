@@ -253,7 +253,7 @@
   border-bottom: none;
 }
 
-@media (max-width: 699px) {
+@media screen and (max-width: 699px) {
   .admin-tabel-wrap {
     overflow-x: visible;
     background: transparent;
@@ -318,32 +318,11 @@
   }
 }
 
-/* Print (Cetak/Simpan PDF Rekap) selalu pakai layout tabel asli, terlepas
-   dari lebar layar saat tombol Cetak diklik. */
-@media print {
-  .admin-tabel-wrap,
-  .admin-tabel,
-  .admin-tabel thead,
-  .admin-tabel tbody,
-  .admin-tabel tr,
-  .admin-tabel th,
-  .admin-tabel td {
-    display: revert !important;
-    position: static !important;
-    width: auto !important;
-    height: auto !important;
-    clip: auto !important;
-    overflow: visible !important;
-    background: revert !important;
-    border: revert !important;
-    padding: revert !important;
-    margin: revert !important;
-    text-align: left !important;
-  }
-  .admin-tabel td[data-label]::before {
-    content: none !important;
-  }
-}
+/* Cetak/Simpan PDF Rekap selalu pakai layout tabel asli meski browser mobile
+   sedang lebar sempit — media query kartu di atas dibatasi "screen and", jadi
+   di "print" otomatis tidak match & tabel balik ke layout <table> normal.
+   Detail rapiin spasi cetak ada di blok @media print bagian bawah (dekat
+   .admin-rekap-export). */
 
 /* ---- Kontrol kecil ---- */
 
@@ -393,13 +372,18 @@
 
 .admin-rekap-kontrol {
   display: grid;
-  grid-template-columns: 1fr;
+  /* minmax(0, 1fr) bukan cuma "1fr" — kalau tidak, grid item (khususnya
+     input[type=date/month] bawaan iOS yg lebar minimalnya cukup besar) akan
+     memaksa kolom melebar melebihi lebar layar, bikin kartu ini "bertumpang
+     tindih" dgn konten di bawahnya. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   margin-bottom: 14px;
   background: var(--putih);
   border: 2px solid var(--abu-border);
   border-radius: var(--radius);
   padding: 14px;
+  overflow: hidden;
 }
 
 .admin-rekap-kontrol label {
@@ -414,6 +398,9 @@
 .admin-rekap-kontrol input[type="date"],
 .admin-rekap-kontrol select {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 10px;
   border-radius: 8px;
   border: 2px solid var(--abu-border);
@@ -422,7 +409,12 @@
 }
 
 .admin-rekap-kontrol span {
-  display: none;
+  display: block;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--teks-redup);
+  margin: -4px 0;
 }
 
 .admin-rekap-kontrol #admin-btn-muat-rekap {
@@ -508,6 +500,12 @@
   }
   body.admin-mode-cetak .admin-tabel-wrap {
     border: none;
+  }
+  /* Spasi cetak sedikit lebih lega + rata biar tidak mepet antar kolom. */
+  body.admin-mode-cetak .admin-tabel th,
+  body.admin-mode-cetak .admin-tabel td {
+    padding: 8px 18px;
+    font-size: 13px;
   }
 }
 
