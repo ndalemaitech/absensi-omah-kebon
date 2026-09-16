@@ -474,23 +474,22 @@
   // eksternal. Style @media print di admin.css menyembunyikan bagian selain
   // tabel rekap supaya hasil cetak/simpan-PDF cuma berisi tabelnya.
   //
-  // window.print() BLOCKING di desktop (baris setelahnya baru jalan setelah
-  // dialog ditutup), tapi TIDAK blocking di mobile Safari/Chrome (langsung
-  // return, print/share sheet muncul async) — kalau class 'admin-mode-cetak'
-  // langsung dihapus sesudahnya spt sebelumnya, di mobile class itu sudah
-  // hilang duluan sebelum sistem sempat render tampilan cetaknya, hasilnya
-  // dialog cetak nongol tapi isinya masih tampilan dashboard biasa (bukan
-  // cuma tabel). Solusi: kasih jeda kecil sebelum & sesudah print() — bukan
-  // gantung ke event 'afterprint' krn dukungannya tidak konsisten di iOS.
+  // PENTING: window.print() WAJIB dipanggil SINKRON di dalam handler klik ini
+  // (bukan di dalam setTimeout/promise/dsb) — Safari/iOS mensyaratkan "user
+  // activation" utk API semacam ini (sama spt aturan popup blocker), kalau
+  // dipanggil async dari setTimeout, iOS DIAM-DIAM menolak munculkan dialog
+  // print sama sekali (percobaan sebelumnya kena bug ini). Yang boleh ditunda
+  // cuma pembersihan class 'admin-mode-cetak' sesudahnya, krn window.print()
+  // BLOCKING di desktop tapi TIDAK blocking di mobile (print/share sheet
+  // muncul async) — kalau class langsung dihapus tanpa jeda, di mobile
+  // tampilan cetak keburu balik ke dashboard biasa sebelum sempat ke-capture.
   $('admin-btn-export-pdf').addEventListener('click', function () {
     if (rekapDataTerakhir.length === 0) { alert('Tidak ada data rekap untuk dicetak. Klik Tampilkan dulu.'); return; }
     document.body.classList.add('admin-mode-cetak');
+    window.print();
     setTimeout(function () {
-      window.print();
-      setTimeout(function () {
-        document.body.classList.remove('admin-mode-cetak');
-      }, 500);
-    }, 50);
+      document.body.classList.remove('admin-mode-cetak');
+    }, 500);
   });
 
   // ============ TAB: KUOTA CUTI KARYAWAN (khusus Owner) ============

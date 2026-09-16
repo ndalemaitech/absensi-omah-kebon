@@ -9,7 +9,7 @@
  * tidak perlu app-shell offline seperti app karyawan ini.
  */
 
-var VERSI = 'absensi-ok-v13';
+var VERSI = 'absensi-ok-v14';
 
 var APP_SHELL = [
   './',
