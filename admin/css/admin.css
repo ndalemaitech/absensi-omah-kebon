@@ -394,9 +394,17 @@
   margin-bottom: 4px;
 }
 
+/* iOS Safari kasih fill abu-abu native ke <input type=date/month> & <select>
+   (beda dari input teks biasa yg nurut CSS) kecuali appearance di-reset +
+   background di-set eksplisit — makanya sebelumnya semua kotak ini keliatan
+   "abu-abu flat" nggak nyambung sama kartu putih di sekitarnya. Bug ini
+   nggak kelihatan pas dicek di browser pane krn Chromium defaultnya sudah
+   putih; cuma muncul di WebKit/iOS asli. */
 .admin-rekap-kontrol input[type="month"],
 .admin-rekap-kontrol input[type="date"],
 .admin-rekap-kontrol select {
+  -webkit-appearance: none;
+  appearance: none;
   width: 100%;
   min-width: 0;
   max-width: 100%;
@@ -404,8 +412,18 @@
   padding: 10px;
   border-radius: 8px;
   border: 2px solid var(--abu-border);
+  background: var(--putih);
+  color: var(--teks);
   font-family: inherit;
   font-size: 14px;
+}
+
+.admin-rekap-kontrol select {
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 18px;
+  padding-right: 34px;
 }
 
 .admin-rekap-kontrol span {
