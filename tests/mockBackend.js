@@ -45,8 +45,8 @@ function hashPin(idPemilik, pin) {
 
 // ===================== STATE (mirip 5 tab Sheet) =====================
 
-var HEADER_KARYAWAN = ['id_karyawan', 'nama', 'pin_hash', 'status', 'tanggal_daftar', 'kuota_cuti_override'];
-var HEADER_ABSENSI = ['id_absen', 'id_karyawan', 'nama', 'tanggal', 'waktu', 'tipe_absen', 'latitude', 'longitude', 'jarak_dari_kantor_m', 'status_lokasi', 'catatan', 'status_verifikasi', 'diverifikasi_oleh', 'waktu_verifikasi'];
+var HEADER_KARYAWAN = ['id_karyawan', 'nama', 'pin_hash', 'status', 'tanggal_daftar', 'kuota_cuti_override', 'divisi', 'jam_kerja'];
+var HEADER_ABSENSI = ['id_absen', 'id_karyawan', 'nama', 'tanggal', 'waktu', 'tipe_absen', 'latitude', 'longitude', 'jarak_dari_kantor_m', 'status_lokasi', 'catatan', 'status_verifikasi', 'diverifikasi_oleh', 'waktu_verifikasi', 'status_waktu'];
 var HEADER_CONFIG = ['key', 'value', 'keterangan'];
 var HEADER_ADMIN = ['id_admin', 'nama', 'role', 'pin_hash', 'status', 'izin_approve_pengajuan', 'izin_verifikasi_lembur', 'izin_lihat_rekap_gaji', 'tanggal_daftar', 'izin_lihat_pengajuan'];
 var HEADER_PENGAJUAN = ['id_pengajuan', 'id_karyawan', 'nama', 'tipe_izin', 'tanggal_mulai', 'tanggal_selesai', 'jumlah_hari', 'alasan', 'lampiran_url', 'status', 'diajukan_pada', 'diputuskan_oleh', 'diputuskan_pada', 'catatan_admin'];
@@ -54,8 +54,14 @@ var HEADER_PENGAJUAN = ['id_pengajuan', 'id_karyawan', 'nama', 'tipe_izin', 'tan
 var DEFAULT_CONFIG = {
   lokasi_kantor_lat: -7.3234422729931525,
   lokasi_kantor_lng: 110.19331425092193,
-  radius_toleransi_m: 1000
+  radius_toleransi_m: 1000,
+  toleransi_terlambat_menit: 15
 };
+
+// SELARAS Code.gs: posisi kolom (0-based) yang ditambahkan belakangan.
+var KOL_KARYAWAN_DIVISI = 6;
+var KOL_KARYAWAN_JAM_KERJA = 7;
+var KOL_ABSENSI_STATUS_WAKTU = 14;
 
 var db;
 
@@ -64,15 +70,16 @@ function resetState() {
   db = {
     Karyawan: [
       HEADER_KARYAWAN.slice(),
-      ['OKT001', 'Test Rama', '', 'Aktif', today, ''],
-      ['OKT002', 'Test Karyawan', '', 'Aktif', today, '']
+      ['OKT001', 'Test Rama', '', 'Aktif', today, '', 'DIVISI A', ''],
+      ['OKT002', 'Test Karyawan', '', 'Aktif', today, '', 'DIVISI B', '']
     ],
     Absensi: [HEADER_ABSENSI.slice()],
     Config: [
       HEADER_CONFIG.slice(),
       ['lokasi_kantor_lat', DEFAULT_CONFIG.lokasi_kantor_lat, ''],
       ['lokasi_kantor_lng', DEFAULT_CONFIG.lokasi_kantor_lng, ''],
-      ['radius_toleransi_m', DEFAULT_CONFIG.radius_toleransi_m, '']
+      ['radius_toleransi_m', DEFAULT_CONFIG.radius_toleransi_m, ''],
+      ['toleransi_terlambat_menit', DEFAULT_CONFIG.toleransi_terlambat_menit, '']
     ],
     Admin: [
       HEADER_ADMIN.slice(),
@@ -104,7 +111,7 @@ var TIPE_IZIN_VALID = ['CUTI', 'SAKIT', 'IZIN'];
 var MAKS_HARI_CUTI = 2;
 var KUOTA_CUTI_TAHUNAN = 12;
 
-function normalisasiTanggal(v) { return String(v).trim(); }
+function normalisasiTanggal(v) { return v instanceof Date ? formatTanggal(v) : String(v).trim(); }
 function normalisasiWaktu(v) { return String(v).trim(); }
 
 function haversineMeter(lat1, lng1, lat2, lng2) {
@@ -134,7 +141,10 @@ function findKaryawan(id) {
   var rows = db.Karyawan;
   for (var i = 1; i < rows.length; i++) {
     if (String(rows[i][0]).trim() === id) {
-      return { id_karyawan: id, nama: String(rows[i][1]).trim(), status: String(rows[i][3]).trim() };
+      return {
+        id_karyawan: id, nama: String(rows[i][1]).trim(), status: String(rows[i][3]).trim(),
+        divisi: teksSel(rows[i][KOL_KARYAWAN_DIVISI]), jam_kerja: teksSel(rows[i][KOL_KARYAWAN_JAM_KERJA])
+      };
     }
   }
   return null;
@@ -159,7 +169,7 @@ function handleGetKaryawan() {
     var r = rows[i];
     if (!r[0]) continue;
     if (String(r[3]).trim().toLowerCase() !== 'aktif') continue;
-    list.push({ id_karyawan: String(r[0]).trim(), nama: String(r[1]).trim(), perlu_pin_baru: String(r[2]).trim() === '' });
+    list.push({ id_karyawan: String(r[0]).trim(), nama: String(r[1]).trim(), perlu_pin_baru: String(r[2]).trim() === '', divisi: teksSel(r[KOL_KARYAWAN_DIVISI]) });
   }
   return { ok: true, karyawan: list };
 }
@@ -227,10 +237,56 @@ function handleAbsen(body) {
   var jarak = Math.round(haversineMeter(lat, lng, config.lokasi_kantor_lat, config.lokasi_kantor_lng));
   var statusLokasi = jarak <= config.radius_toleransi_m ? 'DALAM_RADIUS' : 'DILUAR_RADIUS';
   var statusVerifikasi = KELOMPOK_LEMBUR.indexOf(tipe) !== -1 ? 'BELUM_DIVERIFIKASI' : 'TIDAK_BERLAKU';
+  var statusWaktu = tipe === 'MASUK'
+    ? hitungStatusWaktu(karyawan.jam_kerja, waktu, config.toleransi_terlambat_menit)
+    : 'TIDAK_BERLAKU';
   var idAbsen = 'ABS-' + tanggal.replace(/-/g, '') + '-' + waktu.replace(/:/g, '') + '-' + id;
-  db.Absensi.push([idAbsen, id, karyawan.nama, tanggal, waktu, tipe, lat, lng, jarak, statusLokasi, '', statusVerifikasi, '', '']);
+  db.Absensi.push([idAbsen, id, karyawan.nama, tanggal, waktu, tipe, lat, lng, jarak, statusLokasi, '', statusVerifikasi, '', '', statusWaktu]);
 
   return { ok: true, sudah_absen: false, tipe_absen: tipe, tanggal: tanggal, waktu: waktu, jarak_dari_kantor_m: jarak, status_lokasi: statusLokasi };
+}
+
+// SELARAS Code.gs: parseJamKerja / hitungStatusWaktu / teksSel / petaDivisiKaryawan
+function parseJamKerja(teks) {
+  var hasil = [];
+  var re = /(\d{1,2})[.:](\d{2})\s*-\s*(\d{1,2})[.:](\d{2})/g;
+  var s = String(teks === undefined || teks === null ? '' : teks);
+  var m;
+  while ((m = re.exec(s)) !== null) {
+    var h1 = parseInt(m[1], 10), m1 = parseInt(m[2], 10);
+    var h2 = parseInt(m[3], 10), m2 = parseInt(m[4], 10);
+    if (h1 > 23 || m1 > 59 || h2 > 23 || m2 > 59) continue;
+    hasil.push({ mulai: h1 * 60 + m1, selesai: h2 * 60 + m2 });
+  }
+  return hasil;
+}
+
+function hitungStatusWaktu(jamKerjaTeks, waktu, toleransiMenit) {
+  var jadwal = parseJamKerja(jamKerjaTeks);
+  if (jadwal.length === 0) return 'TIDAK_BERLAKU';
+  var p = String(waktu).split(':');
+  var menit = parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+  if (isNaN(menit)) return 'TIDAK_BERLAKU';
+  var acuan = jadwal[0];
+  for (var i = 1; i < jadwal.length; i++) {
+    if (Math.abs(jadwal[i].mulai - menit) < Math.abs(acuan.mulai - menit)) acuan = jadwal[i];
+  }
+  var toleransi = isNaN(toleransiMenit) ? DEFAULT_CONFIG.toleransi_terlambat_menit : toleransiMenit;
+  return menit <= acuan.mulai + toleransi ? 'TEPAT_WAKTU' : 'TERLAMBAT';
+}
+
+function teksSel(nilai) {
+  return nilai === undefined || nilai === null ? '' : String(nilai).trim();
+}
+
+function petaDivisiKaryawan() {
+  var rows = db.Karyawan;
+  var peta = {};
+  for (var i = 1; i < rows.length; i++) {
+    var id = String(rows[i][0]).trim();
+    if (id) peta[id] = teksSel(rows[i][KOL_KARYAWAN_DIVISI]);
+  }
+  return peta;
 }
 
 function tulisAbsenTidakHadir(idKaryawan, nama, tanggal, tipe, catatan) {
@@ -250,7 +306,7 @@ function tulisAbsenTidakHadir(idKaryawan, nama, tanggal, tipe, catatan) {
   if (sudah) return { ok: true, sudahAda: true };
 
   var idAbsen = 'ABS-' + tanggal.replace(/-/g, '') + '-IZIN-' + idKaryawan;
-  db.Absensi.push([idAbsen, idKaryawan, nama, tanggal, '00:00:00', tipe, '', '', '', 'TIDAK_BERLAKU', catatan || '', 'TIDAK_BERLAKU', '', '']);
+  db.Absensi.push([idAbsen, idKaryawan, nama, tanggal, '00:00:00', tipe, '', '', '', 'TIDAK_BERLAKU', catatan || '', 'TIDAK_BERLAKU', '', '', 'TIDAK_BERLAKU']);
   return { ok: true };
 }
 
@@ -447,12 +503,13 @@ function handleGetAntreanLembur(actorId) {
     if (tipe === 'MULAI_LEMBUR') { sesi[key].mulai = normalisasiWaktu(rows[i][4]); sesi[key].verifMulai = String(rows[i][11]).trim(); }
     else { sesi[key].selesai = normalisasiWaktu(rows[i][4]); sesi[key].verifSelesai = String(rows[i][11]).trim(); }
   }
+  var peta = petaDivisiKaryawan();
   var hasil = [];
   for (var key2 in sesi) {
     var s = sesi[key2];
     if (!s.mulai || !s.selesai) continue;
     if (s.verifMulai === 'TERVERIFIKASI' && s.verifSelesai === 'TERVERIFIKASI') continue;
-    hasil.push({ id_karyawan: s.id_karyawan, nama: s.nama, tanggal: s.tanggal, mulai: s.mulai, selesai: s.selesai, durasi_menit: hitungDurasiMenit(s.mulai, s.selesai) });
+    hasil.push({ id_karyawan: s.id_karyawan, nama: s.nama, divisi: peta[s.id_karyawan] || '', tanggal: s.tanggal, mulai: s.mulai, selesai: s.selesai, durasi_menit: hitungDurasiMenit(s.mulai, s.selesai) });
   }
   hasil.sort(function (a, b) { return a.tanggal < b.tanggal ? 1 : a.tanggal > b.tanggal ? -1 : 0; });
   return { ok: true, antrean: hasil };
@@ -495,6 +552,7 @@ function handleGetRekapGaji(actorId, params) {
   var tanggalMulaiFilter = String(params.tanggal_mulai || '').trim();
   var tanggalSelesaiFilter = String(params.tanggal_selesai || '').trim();
   var idKaryawanFilter = String(params.id_karyawan || '').trim();
+  var divisiFilter = String(params.divisi || '').trim().toLowerCase();
   var pakaiRentangCustom = /^\d{4}-\d{2}-\d{2}$/.test(tanggalMulaiFilter) && /^\d{4}-\d{2}-\d{2}$/.test(tanggalSelesaiFilter);
 
   if (!pakaiRentangCustom && !/^\d{4}-\d{2}$/.test(bulan)) {
@@ -507,7 +565,9 @@ function handleGetRekapGaji(actorId, params) {
     var idK = String(karyawanRows[i][0]).trim();
     if (!idK) continue;
     if (idKaryawanFilter && idK !== idKaryawanFilter) continue;
-    rekap[idK] = { id_karyawan: idK, nama: String(karyawanRows[i][1]).trim(), hari_kerja: 0, hari_izin: 0, hari_cuti: 0, menit_lembur_terverifikasi: 0 };
+    var divisiK = teksSel(karyawanRows[i][KOL_KARYAWAN_DIVISI]);
+    if (divisiFilter && divisiK.toLowerCase() !== divisiFilter) continue;
+    rekap[idK] = { id_karyawan: idK, nama: String(karyawanRows[i][1]).trim(), divisi: divisiK, hari_kerja: 0, terlambat: 0, hari_izin: 0, hari_cuti: 0, menit_lembur_terverifikasi: 0 };
   }
   var rows = db.Absensi;
   var lemburPerHari = {};
@@ -520,7 +580,10 @@ function handleGetRekapGaji(actorId, params) {
       : (tgl.substring(0, 7) === bulan);
     if (!cocokRentang) continue;
     var tipe = String(rows[j][5]).trim().toUpperCase();
-    if (tipe === 'MASUK') rekap[idKar].hari_kerja += 1;
+    if (tipe === 'MASUK') {
+      rekap[idKar].hari_kerja += 1;
+      if (teksSel(rows[j][KOL_ABSENSI_STATUS_WAKTU]) === 'TERLAMBAT') rekap[idKar].terlambat += 1;
+    }
     if (tipe === 'SAKIT' || tipe === 'IZIN') rekap[idKar].hari_izin += 1;
     if (tipe === 'CUTI') rekap[idKar].hari_cuti += 1;
     if (tipe === 'MULAI_LEMBUR' || tipe === 'SELESAI_LEMBUR') {
@@ -641,10 +704,12 @@ function handleGetAntreanPengajuan(actorId) {
   var cek = requireIzin(String(actorId || '').trim(), 'izin_lihat_pengajuan');
   if (!cek.ok) return cek;
   var rows = db.Pengajuan;
+  var peta = petaDivisiKaryawan();
   var hasil = [];
   for (var i = 1; i < rows.length; i++) {
     var p = pengajuanDariBaris(rows[i]);
     if (p.status !== 'PENDING') continue;
+    p.divisi = peta[p.id_karyawan] || '';
     if (p.tipe_izin === 'CUTI') p.sisa_kuota_cuti = hitungKuotaCutiKaryawan(p.id_karyawan).sisa;
     hasil.push(p);
   }
@@ -710,7 +775,7 @@ function hitungKuotaCutiKaryawan(idKaryawan) {
   var tanggalDaftar = '', override = '';
   for (var i = 1; i < rows.length; i++) {
     if (String(rows[i][0]).trim() !== idKaryawan) continue;
-    tanggalDaftar = String(rows[i][4]).trim();
+    tanggalDaftar = normalisasiTanggal(rows[i][4]);
     override = rows[i].length > 5 ? String(rows[i][5]).trim() : '';
     break;
   }
@@ -743,7 +808,7 @@ function handleGetKuotaCuti(actorId) {
     var idK = String(rows[i][0]).trim();
     var info = hitungKuotaCutiKaryawan(idK);
     hasil.push({
-      id_karyawan: idK, nama: String(rows[i][1]).trim(), tanggal_daftar: normalisasiTanggal(rows[i][4]),
+      id_karyawan: idK, nama: String(rows[i][1]).trim(), divisi: teksSel(rows[i][KOL_KARYAWAN_DIVISI]), tanggal_daftar: normalisasiTanggal(rows[i][4]),
       kuota: info.kuota, kuota_otomatis: info.kuota_otomatis, override: info.override, terpakai: info.terpakai, sisa: info.sisa
     });
   }

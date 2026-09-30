@@ -39,7 +39,7 @@ Aplikasi absensi karyawan Omah Kebon (klien Ndalem AI Tech). PWA mobile-first + 
 3. Hapus isi `Code.gs` bawaan, lalu **paste seluruh isi [`apps-script/Code.gs`](apps-script/Code.gs)** dari repo ini. Simpan (Ctrl+S).
 4. (Disarankan) Set timezone project: ikon gear ⚙ **Project Settings** → Time zone → `(GMT+07:00) Jakarta`.
 5. **Jalankan `setupSheet()`**: di toolbar editor pilih fungsi `setupSheet` → klik **Run** → izinkan otorisasi yang diminta (akses Spreadsheet **dan Drive** — Drive dipakai untuk simpan lampiran foto pengajuan izin). Ini otomatis membuat 5 tab (`Karyawan`, `Absensi`, `Config`, `Admin`, `Pengajuan`) lengkap dengan header dan data contoh.
-   - **Kalau Sheet-mu sudah pernah setup sebelumnya** (masih versi lama): tetap jalankan `setupSheet()` ulang — ini AMAN, idempotent. Tab yang belum ada akan dibuat, dan kolom yang belum ada di tab lama (`status_verifikasi` dkk di `Absensi`, `izin_lihat_pengajuan` di `Admin`, **`kuota_cuti_override` di `Karyawan`** — kolom baru 2026-08-07) otomatis ditambahkan TANPA mengubah data yang sudah ada.
+   - **Kalau Sheet-mu sudah pernah setup sebelumnya** (masih versi lama): tetap jalankan `setupSheet()` ulang — ini AMAN, idempotent. Tab yang belum ada akan dibuat, dan kolom yang belum ada di tab lama (`status_verifikasi` dkk di `Absensi`, `izin_lihat_pengajuan` di `Admin`, **`kuota_cuti_override` di `Karyawan`** — kolom baru 2026-08-07; **`divisi` + `jam_kerja` di `Karyawan`, `status_waktu` di `Absensi`, dan baris `toleransi_terlambat_menit` di `Config`** — baru 2026-09-30) otomatis ditambahkan TANPA mengubah data yang sudah ada.
    - **Kalau Sheet-mu sudah punya tab `Admin` dari update Lembur (2026-07-30 siang)**: setelah jalankan `setupSheet()` ulang, buka dashboard admin → login sebagai Mas Abim → tab **Kelola Akun Admin** → centang **"Lihat Pengajuan"** untuk Bu Lis (default kosong setelah migrasi, harus dinyalakan manual sekali).
    - **Data lama dengan tipe absen `OFF` atau `IZIN_BIASA`** (dari sebelum 2026-08-07) TIDAK diubah otomatis oleh migrasi — baris lama tetap tersimpan apa adanya di Sheet (histori tidak hilang), cuma tidak akan tertulis lagi ke depannya (Off dihapus, Izin Biasa → Izin).
 6. **Deploy sebagai Web App**: tombol **Deploy → New deployment** → tipe **Web app** →
@@ -124,13 +124,26 @@ Izin tiap role (kecuali Owner) **bisa diubah kapan saja oleh Owner** lewat tab "
 
 **Pengajuan Cuti/Izin:** lihat bagian [Pengajuan Izin](#pengajuan-izin-cutisakitizin) di atas.
 
-**Rekap** (dulu bernama "Rekap Gaji", diringkas 2026-08-07): kolom **Hari Kerja** (dari absen Masuk), **Izin** (Sakit+Izin digabung), **Cuti**, dan **Jam Lembur Terverifikasi**. Filter: bulan (default) ATAU rentang tanggal custom (dari/sampai, mengesampingkan pilihan bulan kalau diisi keduanya), plus filter per karyawan. Tersedia tombol **Unduh CSV** (native, tanpa library) dan **Cetak/Simpan PDF** (lewat dialog cetak browser).
+**Rekap** (dulu bernama "Rekap Gaji", diringkas 2026-08-07): kolom **Divisi**, **Hari Kerja** (dari absen Masuk), **Terlambat** (berapa kali absen Masuk berstatus `TERLAMBAT` dalam periode itu), **Izin** (Sakit+Izin digabung), **Cuti**, dan **Jam Lembur Terverifikasi**. Filter: bulan (default) ATAU rentang tanggal custom (dari/sampai, mengesampingkan pilihan bulan kalau diisi keduanya), plus filter **Divisi** dan filter per karyawan (dropdown karyawan otomatis menyempit sesuai divisi yang dipilih). Tersedia tombol **Unduh CSV** (native, tanpa library) dan **Cetak/Simpan PDF** (lewat dialog cetak browser) — keduanya ikut memuat Divisi & Terlambat.
+
+**Divisi di tab lain:** tab Verifikasi Lembur, Pengajuan Cuti/Izin, dan Kuota Cuti Karyawan juga menampilkan kolom **Divisi** dan punya filter **Divisi** sendiri. Daftar pilihan divisi diambil otomatis dari kolom `divisi` tab `Karyawan` (divisi baru di Sheet langsung muncul setelah halaman dimuat ulang).
+
+## Jam Kerja & Status Terlambat
+
+Tab `Karyawan` punya kolom `divisi` dan `jam_kerja`. Tab `Absensi` punya kolom `status_waktu` (paling kanan) yang diisi otomatis setiap kali karyawan absen:
+
+- **Format `jam_kerja`:** `08.00 - 16.00` (titik atau titik dua sama saja). Untuk karyawan dengan dua shift: `09.00 - 17.00 / 14.00 - 22.00` — sistem memakai shift yang jam mulainya **paling dekat** dengan jam absen. Kosongkan kalau karyawan tidak punya jadwal tetap.
+- **`status_waktu`** hanya dinilai untuk absen **MASUK**: `TEPAT_WAKTU` (jam masuk ≤ jam mulai + toleransi), `TERLAMBAT`, atau `TIDAK_BERLAKU` (bukan absen Masuk, `jam_kerja` kosong, atau teksnya tidak terbaca). Jam yang dipakai adalah **jam server** (bukan jam HP), dan detik diabaikan (08:15:59 masih tepat waktu, 08:16 terlambat). Baris lama sebelum fitur ini dibiarkan kosong.
+- **Toleransi** default **15 menit**, diubah lewat tab `Config` baris `toleransi_terlambat_menit` (berlaku langsung).
+- **Karyawan tidak melihat apa pun** soal ini — layar sukses, riwayat, dan kalender tidak berubah. Info hanya untuk admin: kolom `status_waktu` di Sheet (bisa difilter) dan hitungan **Terlambat** di tab Rekap.
+- `jam_kerja` bagian pulang saat ini hanya disimpan (belum dipakai; belum ada penilaian "pulang cepat").
 
 ## Kelola Karyawan (via Sheet langsung)
 
-- **Tambah:** isi baris baru di tab `Karyawan` — `id_karyawan` unik (misal `OKT003`), `nama`, kosongkan `pin_hash`, `status` = `Aktif`, `tanggal_daftar`, kosongkan `kuota_cuti_override` (biar pakai perhitungan otomatis).
+- **Format ID:** `id_karyawan` = `OKT` + NIK karyawan (contoh `OKT123456`). Nama kolom tetap `id_karyawan` di semua tab. Karyawan yang belum punya NIK dipakaikan nomor sementara berawalan `99` (mis. `OKT990001`); begitu NIK aslinya ada, ganti lewat Edit → Find and replace (Search: All sheets), lalu kosongkan `pin_hash`-nya (PIN di-hash dengan ID sebagai garam, jadi wajib dibuat ulang).
+- **Tambah:** isi baris baru di tab `Karyawan` — `id_karyawan` unik (format `OKT<NIK>`), `nama`, kosongkan `pin_hash`, `status` = `Aktif`, `tanggal_daftar` (dipakai hitung kuota cuti — isi tanggal mulai kerja), kosongkan `kuota_cuti_override` (biar pakai perhitungan otomatis), `divisi`, dan `jam_kerja` (boleh kosong).
 - **Nonaktifkan:** ubah `status` jadi `Nonaktif` (jangan hapus baris — riwayat absen tetap tersimpan).
-- **Ubah radius/koordinat:** edit tab `Config` — berlaku langsung tanpa deploy ulang.
+- **Ubah radius/koordinat/toleransi terlambat:** edit tab `Config` — berlaku langsung tanpa deploy ulang.
 - **Atur kuota cuti manual:** lewat dashboard admin tab "Kuota Cuti Karyawan" (lihat bagian [Kuota Cuti](#kuota-cuti) di atas) — tidak perlu edit Sheet langsung, walau bisa juga lewat kolom `kuota_cuti_override`.
 
 ## SOP Admin: Reset Akses Karyawan (HP rusak / hilang / ketinggalan)

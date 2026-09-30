@@ -514,6 +514,230 @@ test('getKuotaCuti: KHUSUS Owner, daftar semua karyawan aktif', function () {
   assert.strictEqual(res.kuota.length, 2);
 });
 
+// ===================== DIVISI, JAM KERJA & STATUS TERLAMBAT =====================
+
+var LOK = { lat: -7.3234422729931525, lng: 110.19331425092193 };
+
+function setJadwal(idxBaris, teks) { backend.getSheetData('Karyawan')[idxBaris][7] = teks; }
+
+function barisAbsenTerakhir() {
+  var a = backend.getSheetData('Absensi');
+  return a[a.length - 1];
+}
+
+// Absen MASUK OKT001 pada jam WIB tertentu, kembalikan status_waktu yg tertulis di Sheet
+function statusMasukPada(jamStr, idKaryawan) {
+  ubahJam(jamStr);
+  var res = backend.doPost({ action: 'absen', id_karyawan: idKaryawan || 'OKT001', tipe_absen: 'MASUK', lat: LOK.lat, lng: LOK.lng });
+  assert.strictEqual(res.ok, true);
+  return barisAbsenTerakhir()[14];
+}
+
+test('getKaryawan menyertakan divisi (dipakai filter dashboard admin)', function () {
+  var res = backend.doGet({ action: 'getKaryawan' });
+  assert.strictEqual(res.karyawan[0].divisi, 'DIVISI A');
+  assert.strictEqual(res.karyawan[1].divisi, 'DIVISI B');
+});
+
+test('jadwal 08.00-16.00: tepat 08:00 dan tepat 08:15 = TEPAT_WAKTU, 08:16 = TERLAMBAT', function () {
+  setJadwal(1, '08.00 - 16.00');
+  assert.strictEqual(statusMasukPada('08:00'), 'TEPAT_WAKTU');
+  backend.resetState(); setJadwal(1, '08.00 - 16.00');
+  assert.strictEqual(statusMasukPada('08:15'), 'TEPAT_WAKTU');
+  backend.resetState(); setJadwal(1, '08.00 - 16.00');
+  assert.strictEqual(statusMasukPada('08:16'), 'TERLAMBAT');
+});
+
+test('detik diabaikan: 08:15:59 masih TEPAT_WAKTU, 08:16:00 TERLAMBAT', function () {
+  setJadwal(1, '08.00 - 16.00');
+  backend.setNow(new Date('2026-07-30T01:15:59.000Z')); // 08:15:59 WIB
+  backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MASUK', lat: LOK.lat, lng: LOK.lng });
+  assert.strictEqual(barisAbsenTerakhir()[4], '08:15:59');
+  assert.strictEqual(barisAbsenTerakhir()[14], 'TEPAT_WAKTU');
+  backend.resetState(); setJadwal(1, '08.00 - 16.00');
+  backend.setNow(new Date('2026-07-30T01:16:00.000Z')); // 08:16:00 WIB
+  backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MASUK', lat: LOK.lat, lng: LOK.lng });
+  assert.strictEqual(barisAbsenTerakhir()[14], 'TERLAMBAT');
+});
+
+test('datang lebih awal dari jam masuk = TEPAT_WAKTU', function () {
+  setJadwal(1, '07.00 - 16.00');
+  assert.strictEqual(statusMasukPada('06:20'), 'TEPAT_WAKTU');
+});
+
+test('dua shift (Cafe): shift acuan = jam mulai terdekat dgn jam absen', function () {
+  var cafe = '09.00 - 17.00 / 14.00 - 22.00';
+  var kasus = [['09:10', 'TEPAT_WAKTU'], ['09:20', 'TERLAMBAT'], ['13:50', 'TEPAT_WAKTU'], ['14:10', 'TEPAT_WAKTU'], ['14:20', 'TERLAMBAT']];
+  kasus.forEach(function (k) {
+    backend.resetState(); setJadwal(1, cafe);
+    assert.strictEqual(statusMasukPada(k[0]), k[1], 'jam ' + k[0]);
+  });
+});
+
+test('pemisah titik dua & tanpa spasi ("08:00-16:00") juga terbaca', function () {
+  setJadwal(1, '08:00-16:00');
+  assert.strictEqual(statusMasukPada('08:30'), 'TERLAMBAT');
+});
+
+test('tanpa jam_kerja (kosong) = TIDAK_BERLAKU, absen tetap sukses', function () {
+  assert.strictEqual(statusMasukPada('11:00'), 'TIDAK_BERLAKU');
+});
+
+test('jam_kerja tidak terbaca / rusak = TIDAK_BERLAKU, absen TIDAK diblokir', function () {
+  ['pagi hari', '25.00 - 16.00', '08.00', '08.99 - 16.00'].forEach(function (rusak) {
+    backend.resetState(); setJadwal(1, rusak);
+    assert.strictEqual(statusMasukPada('11:00'), 'TIDAK_BERLAKU', rusak);
+  });
+});
+
+test('hanya MASUK yang dinilai: PULANG & Lembur = TIDAK_BERLAKU', function () {
+  setJadwal(1, '08.00 - 16.00');
+  statusMasukPada('08:00');
+  ubahJam('16:05');
+  backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'PULANG', lat: LOK.lat, lng: LOK.lng });
+  assert.strictEqual(barisAbsenTerakhir()[5], 'PULANG');
+  assert.strictEqual(barisAbsenTerakhir()[14], 'TIDAK_BERLAKU');
+  backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MULAI_LEMBUR', lat: LOK.lat, lng: LOK.lng });
+  assert.strictEqual(barisAbsenTerakhir()[14], 'TIDAK_BERLAKU');
+});
+
+test('absen MASUK ganda tidak menulis ulang / mengubah status_waktu', function () {
+  setJadwal(1, '08.00 - 16.00');
+  assert.strictEqual(statusMasukPada('08:30'), 'TERLAMBAT');
+  ubahJam('08:31');
+  var res = backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MASUK', lat: LOK.lat, lng: LOK.lng });
+  assert.strictEqual(res.sudah_absen, true);
+  assert.strictEqual(backend.getSheetData('Absensi').length, 2); // header + 1 baris
+});
+
+test('toleransi bisa diubah lewat Config (toleransi_terlambat_menit)', function () {
+  setJadwal(1, '08.00 - 16.00');
+  backend.getSheetData('Config').forEach(function (r) { if (r[0] === 'toleransi_terlambat_menit') r[1] = 30; });
+  assert.strictEqual(statusMasukPada('08:30'), 'TEPAT_WAKTU');
+  backend.resetState(); setJadwal(1, '08.00 - 16.00');
+  backend.getSheetData('Config').forEach(function (r) { if (r[0] === 'toleransi_terlambat_menit') r[1] = 30; });
+  assert.strictEqual(statusMasukPada('08:31'), 'TERLAMBAT');
+});
+
+test('Config lama tanpa key toleransi_terlambat_menit → default 15 menit', function () {
+  setJadwal(1, '08.00 - 16.00');
+  var cfg = backend.getSheetData('Config');
+  for (var i = cfg.length - 1; i >= 1; i--) if (cfg[i][0] === 'toleransi_terlambat_menit') cfg.splice(i, 1);
+  assert.strictEqual(statusMasukPada('08:15'), 'TEPAT_WAKTU');
+  backend.resetState(); setJadwal(1, '08.00 - 16.00');
+  cfg = backend.getSheetData('Config');
+  for (var j = cfg.length - 1; j >= 1; j--) if (cfg[j][0] === 'toleransi_terlambat_menit') cfg.splice(j, 1);
+  assert.strictEqual(statusMasukPada('08:16'), 'TERLAMBAT');
+});
+
+test('karyawan TIDAK melihat status_waktu: respons absen & riwayat tidak memuatnya', function () {
+  setJadwal(1, '08.00 - 16.00');
+  ubahJam('09:00');
+  var res = backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MASUK', lat: LOK.lat, lng: LOK.lng });
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(JSON.stringify(res).indexOf('TERLAMBAT'), -1);
+  assert.strictEqual(JSON.stringify(res).indexOf('status_waktu'), -1);
+  var ulang = backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MASUK', lat: LOK.lat, lng: LOK.lng });
+  assert.strictEqual(JSON.stringify(ulang).indexOf('TERLAMBAT'), -1);
+  var riwayat = backend.doGet({ action: 'riwayat', id_karyawan: 'OKT001', bulan: '2026-07' });
+  assert.strictEqual(JSON.stringify(riwayat).indexOf('TERLAMBAT'), -1);
+  assert.strictEqual(JSON.stringify(riwayat).indexOf('status_waktu'), -1);
+});
+
+test('baris Cuti/Izin hasil approval pengajuan = status_waktu TIDAK_BERLAKU', function () {
+  backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'IZIN', tanggal_mulai: '2026-08-03', tanggal_selesai: '2026-08-03', alasan: 'Urusan keluarga' });
+  var id = backend.doGet({ action: 'getAntreanPengajuan', actor_id_admin: 'ADM001' }).antrean[0].id_pengajuan;
+  backend.doPost({ action: 'putuskanPengajuan', actor_id_admin: 'ADM001', id_pengajuan: id, keputusan: 'DISETUJUI' });
+  var baris = barisAbsenTerakhir();
+  assert.strictEqual(baris[5], 'IZIN');
+  assert.strictEqual(baris.length, 15);
+  assert.strictEqual(baris[14], 'TIDAK_BERLAKU');
+});
+
+test('ID format OKT+NIK (mis. OKT123456): login & absen jalan normal', function () {
+  backend.getSheetData('Karyawan').push(['OKT123456', 'KARYAWAN CONTOH', '', 'Aktif', '2026-07-01', '', 'MARKETING SALES', '08.00 - 16.00']);
+  var login = backend.doPost({ action: 'login', id_karyawan: 'OKT123456', pin: '4321' });
+  assert.strictEqual(login.ok, true);
+  assert.strictEqual(statusMasukPada('08:40', 'OKT123456'), 'TERLAMBAT');
+});
+
+test('rekap: kolom divisi + jumlah terlambat (hanya MASUK berstatus TERLAMBAT dalam periode)', function () {
+  setJadwal(1, '08.00 - 16.00');
+  // 3 hari: tepat waktu, terlambat, terlambat  (28-30 Juli 2026)
+  [['2026-07-28T01:00:00.000Z', 'TEPAT'], ['2026-07-29T01:30:00.000Z', 'LATE'], ['2026-07-30T01:45:00.000Z', 'LATE']].forEach(function (k) {
+    backend.setNow(new Date(k[0]));
+    backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MASUK', lat: LOK.lat, lng: LOK.lng });
+  });
+  // 1 hari terlambat di bulan lain → tidak boleh ikut hitungan Juli
+  backend.setNow(new Date('2026-08-03T01:40:00.000Z'));
+  backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MASUK', lat: LOK.lat, lng: LOK.lng });
+  var rekap = backend.doGet({ action: 'getRekapGaji', actor_id_admin: 'ADM001', bulan: '2026-07' }).rekap;
+  var r1 = rekap.filter(function (r) { return r.id_karyawan === 'OKT001'; })[0];
+  assert.strictEqual(r1.hari_kerja, 3);
+  assert.strictEqual(r1.terlambat, 2);
+  assert.strictEqual(r1.divisi, 'DIVISI A');
+  var r2 = rekap.filter(function (r) { return r.id_karyawan === 'OKT002'; })[0];
+  assert.strictEqual(r2.terlambat, 0);
+  var rentang = backend.doGet({ action: 'getRekapGaji', actor_id_admin: 'ADM001', tanggal_mulai: '2026-07-29', tanggal_selesai: '2026-08-03' }).rekap;
+  assert.strictEqual(rentang.filter(function (r) { return r.id_karyawan === 'OKT001'; })[0].terlambat, 3);
+});
+
+test('rekap: baris Absensi lama (tanpa kolom status_waktu) tidak error & tidak dihitung terlambat', function () {
+  var a = backend.getSheetData('Absensi');
+  a.push(['ABS-LAMA', 'OKT001', 'Test Rama', '2026-07-10', '09:30:00', 'MASUK', LOK.lat, LOK.lng, 0, 'DALAM_RADIUS', '', 'TIDAK_BERLAKU', '', '']); // hanya 14 kolom
+  var rekap = backend.doGet({ action: 'getRekapGaji', actor_id_admin: 'ADM001', bulan: '2026-07' }).rekap;
+  var r1 = rekap.filter(function (r) { return r.id_karyawan === 'OKT001'; })[0];
+  assert.strictEqual(r1.hari_kerja, 1);
+  assert.strictEqual(r1.terlambat, 0);
+});
+
+test('rekap: filter divisi (tidak peka huruf besar/kecil), bisa digabung dgn filter karyawan', function () {
+  var semua = backend.doGet({ action: 'getRekapGaji', actor_id_admin: 'ADM001', bulan: '2026-07' }).rekap;
+  assert.strictEqual(semua.length, 2);
+  var a = backend.doGet({ action: 'getRekapGaji', actor_id_admin: 'ADM001', bulan: '2026-07', divisi: 'divisi a' }).rekap;
+  assert.strictEqual(a.length, 1);
+  assert.strictEqual(a[0].id_karyawan, 'OKT001');
+  var kosong = backend.doGet({ action: 'getRekapGaji', actor_id_admin: 'ADM001', bulan: '2026-07', divisi: 'DIVISI A', id_karyawan: 'OKT002' }).rekap;
+  assert.strictEqual(kosong.length, 0);
+  var tidakAda = backend.doGet({ action: 'getRekapGaji', actor_id_admin: 'ADM001', bulan: '2026-07', divisi: 'TIDAK ADA' }).rekap;
+  assert.strictEqual(tidakAda.length, 0);
+});
+
+test('divisi ikut di antrean Lembur, antrean Pengajuan, dan Kuota Cuti', function () {
+  ubahJam('17:00');
+  backend.doPost({ action: 'absen', id_karyawan: 'OKT002', tipe_absen: 'MULAI_LEMBUR', lat: LOK.lat, lng: LOK.lng });
+  ubahJam('19:00');
+  backend.doPost({ action: 'absen', id_karyawan: 'OKT002', tipe_absen: 'SELESAI_LEMBUR', lat: LOK.lat, lng: LOK.lng });
+  var lembur = backend.doGet({ action: 'getAntreanLembur', actor_id_admin: 'ADM001' }).antrean;
+  assert.strictEqual(lembur[0].divisi, 'DIVISI B');
+
+  backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'SAKIT', tanggal_mulai: '2026-08-03', tanggal_selesai: '2026-08-03', alasan: 'Demam' });
+  var pengajuan = backend.doGet({ action: 'getAntreanPengajuan', actor_id_admin: 'ADM001' }).antrean;
+  assert.strictEqual(pengajuan[0].divisi, 'DIVISI A');
+
+  var kuota = backend.doGet({ action: 'getKuotaCuti', actor_id_admin: 'ADM001' }).kuota;
+  assert.strictEqual(kuota.filter(function (k) { return k.id_karyawan === 'OKT001'; })[0].divisi, 'DIVISI A');
+});
+
+test('Sheet Karyawan lama (6 kolom, tanpa divisi/jam_kerja) tetap jalan: divisi kosong, status TIDAK_BERLAKU', function () {
+  var k = backend.getSheetData('Karyawan');
+  for (var i = 0; i < k.length; i++) k[i].length = 6; // simulasi Sheet belum dimigrasi
+  var res = backend.doGet({ action: 'getKaryawan' });
+  assert.strictEqual(res.karyawan[0].divisi, '');
+  assert.strictEqual(statusMasukPada('09:00'), 'TIDAK_BERLAKU');
+  var rekap = backend.doGet({ action: 'getRekapGaji', actor_id_admin: 'ADM001', bulan: '2026-07' });
+  assert.strictEqual(rekap.ok, true);
+  assert.strictEqual(rekap.rekap[0].divisi, '');
+});
+test('kuota cuti: tanggal_daftar bertipe Date (dari Sheet) dibaca benar, bukan dianggap tanggal rusak', function () {
+  var k = backend.getSheetData('Karyawan');
+  k[1][4] = new Date('2021-03-01T00:00:00+07:00'); // >1 thn kerja
+  k[2][4] = new Date('2026-07-01T00:00:00+07:00'); // <1 thn
+  assert.strictEqual(backend.doGet({ action: 'getKuotaCutiSaya', id_karyawan: 'OKT001' }).kuota, 12);
+  assert.strictEqual(backend.doGet({ action: 'getKuotaCutiSaya', id_karyawan: 'OKT002' }).kuota, 0);
+  var daftar = backend.doGet({ action: 'getKuotaCuti', actor_id_admin: 'ADM001' }).kuota;
+  assert.strictEqual(daftar.filter(function (x) { return x.id_karyawan === 'OKT001'; })[0].tanggal_daftar, '2021-03-01');
+});
 // ===================== RINGKASAN =====================
 
 console.log('');

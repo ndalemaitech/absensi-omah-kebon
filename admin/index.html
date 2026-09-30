@@ -70,11 +70,15 @@
     <div id="admin-tab-lembur" class="admin-tab-konten aktif">
       <h2 class="admin-judul-tab">Sesi Lembur Menunggu Verifikasi</h2>
       <p class="admin-keterangan">Cuma sesi yang sudah lengkap (Mulai + Selesai Lembur) yang muncul di sini. Verifikasi memastikan jam lembur ini benar sebelum ikut dihitung ke rekap gaji.</p>
+      <div class="admin-rekap-kontrol admin-filter-divisi">
+        <label for="admin-filter-divisi-lembur">Divisi</label>
+        <select id="admin-filter-divisi-lembur"><option value="">Semua divisi</option></select>
+      </div>
       <div id="admin-lembur-kosong" class="admin-kosong tersembunyi">Tidak ada sesi lembur yang menunggu verifikasi.</div>
       <div class="admin-tabel-wrap">
         <table class="admin-tabel">
           <thead>
-            <tr><th>Nama</th><th>Tanggal</th><th>Mulai</th><th>Selesai</th><th>Durasi</th><th></th></tr>
+            <tr><th>Nama</th><th>Divisi</th><th>Tanggal</th><th>Mulai</th><th>Selesai</th><th>Durasi</th><th></th></tr>
           </thead>
           <tbody id="admin-lembur-tbody"></tbody>
         </table>
@@ -85,6 +89,10 @@
     <div id="admin-tab-pengajuan" class="admin-tab-konten">
       <h2 class="admin-judul-tab">Pengajuan Cuti/Izin</h2>
       <p class="admin-keterangan">Menampilkan pengajuan yang masih menunggu keputusan. Klik Setujui/Tolak untuk langsung memutuskan — tanpa perlu isi catatan.</p>
+      <div class="admin-rekap-kontrol admin-filter-divisi">
+        <label for="admin-filter-divisi-pengajuan">Divisi</label>
+        <select id="admin-filter-divisi-pengajuan"><option value="">Semua divisi</option></select>
+      </div>
       <div id="admin-pengajuan-kosong" class="admin-kosong tersembunyi">Tidak ada pengajuan yang menunggu.</div>
       <div id="admin-pengajuan-readonly-note" class="admin-placeholder tersembunyi">
         <p>Anda punya akses <strong>lihat saja</strong> untuk pengajuan ini. Keputusan (setuju/tolak) hanya bisa dilakukan oleh Owner.</p>
@@ -92,7 +100,7 @@
       <div class="admin-tabel-wrap">
         <table class="admin-tabel">
           <thead>
-            <tr><th>Nama</th><th>Jenis</th><th>Tanggal</th><th>Hari</th><th>Sisa Kuota Cuti</th><th>Alasan</th><th>Lampiran</th><th>Diajukan</th><th></th></tr>
+            <tr><th>Nama</th><th>Divisi</th><th>Jenis</th><th>Tanggal</th><th>Hari</th><th>Sisa Kuota Cuti</th><th>Alasan</th><th>Lampiran</th><th>Diajukan</th><th></th></tr>
           </thead>
           <tbody id="admin-pengajuan-tbody"></tbody>
         </table>
@@ -102,7 +110,7 @@
     <!-- ---- Tab: Rekap ---- -->
     <div id="admin-tab-rekap" class="admin-tab-konten">
       <h2 class="admin-judul-tab">Rekap</h2>
-      <p class="admin-keterangan" id="admin-rekap-catatan">Hari Kerja dihitung dari absen Masuk. Izin mencakup Sakit maupun Izin biasa. Jam Lembur cuma yang sudah diverifikasi.</p>
+      <p class="admin-keterangan" id="admin-rekap-catatan">Hari Kerja dihitung dari absen Masuk. Terlambat = jumlah absen Masuk yang melewati jam masuk + toleransi (hanya untuk karyawan yang punya jam kerja). Izin mencakup Sakit maupun Izin biasa. Jam Lembur cuma yang sudah diverifikasi.</p>
       <div class="admin-rekap-kontrol">
         <label for="admin-rekap-bulan">Bulan</label>
         <input id="admin-rekap-bulan" type="month" />
@@ -110,6 +118,8 @@
         <input id="admin-rekap-dari" type="date" />
         <span>s/d</span>
         <input id="admin-rekap-sampai" type="date" />
+        <label for="admin-rekap-divisi">Divisi</label>
+        <select id="admin-rekap-divisi"><option value="">Semua divisi</option></select>
         <label for="admin-rekap-karyawan">Karyawan</label>
         <select id="admin-rekap-karyawan"><option value="">Semua karyawan</option></select>
         <button id="admin-btn-muat-rekap" class="admin-btn-kecil">Tampilkan</button>
@@ -117,7 +127,7 @@
       <div class="admin-tabel-wrap">
         <table class="admin-tabel" id="admin-rekap-tabel">
           <thead>
-            <tr><th>Nama</th><th>Hari Kerja</th><th>Izin</th><th>Cuti</th><th>Jam Lembur Terverifikasi</th></tr>
+            <tr><th>Nama</th><th>Divisi</th><th>Hari Kerja</th><th>Terlambat</th><th>Izin</th><th>Cuti</th><th>Jam Lembur Terverifikasi</th></tr>
           </thead>
           <tbody id="admin-rekap-tbody"></tbody>
         </table>
@@ -132,10 +142,14 @@
     <div id="admin-tab-kuota" class="admin-tab-konten">
       <h2 class="admin-judul-tab">Kuota Cuti Karyawan</h2>
       <p class="admin-keterangan">Khusus Owner. Otomatis: 0 hari sebelum genap 1 tahun kerja, 12 hari/tahun setelahnya (tidak dobel dari tahun sebelumnya). Isi kolom "Override" untuk menimpa angka otomatis itu utk karyawan tertentu — kosongkan lagi untuk kembali ke otomatis.</p>
+      <div class="admin-rekap-kontrol admin-filter-divisi">
+        <label for="admin-filter-divisi-kuota">Divisi</label>
+        <select id="admin-filter-divisi-kuota"><option value="">Semua divisi</option></select>
+      </div>
       <div class="admin-tabel-wrap">
         <table class="admin-tabel">
           <thead>
-            <tr><th>Nama</th><th>Tanggal Daftar</th><th>Kuota Otomatis</th><th>Override</th><th>Terpakai Thn Ini</th><th>Sisa</th><th></th></tr>
+            <tr><th>Nama</th><th>Divisi</th><th>Tanggal Daftar</th><th>Kuota Otomatis</th><th>Override</th><th>Terpakai Thn Ini</th><th>Sisa</th><th></th></tr>
           </thead>
           <tbody id="admin-kuota-tbody"></tbody>
         </table>

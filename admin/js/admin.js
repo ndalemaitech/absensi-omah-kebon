@@ -12,6 +12,13 @@
   // ============ STATE ============
   var daftarAdmin = [];
   var daftarKaryawanAktif = [];
+  var sedangMuatDaftarKaryawan = false;
+  // Data mentah terakhir tiap tab — filter divisi dijalankan di sisi browser
+  // (tanpa fetch ulang), jadi disimpan di sini lalu digambar ulang.
+  var dataLembur = [];
+  var dataPengajuan = [];
+  var bisaPutuskanPengajuan = false;
+  var dataKuota = [];
   var adminTerpilih = null; // saat proses login, sebelum PIN dikirim
   var sesiAdmin = null; // profil lengkap admin yang sedang login
   var tabAktifSekarang = 'lembur';
@@ -252,9 +259,10 @@
   // dashboard dibuka, terutama saat baru login/reload.
   function muatDataTab(nama) {
     if (!sesiAdmin) return;
+    muatDaftarKaryawanUntukFilter(); // isi pilihan Divisi di semua tab (sekali per sesi)
     if (nama === 'lembur') muatAntreanLembur();
     else if (nama === 'pengajuan') muatAntreanPengajuan();
-    else if (nama === 'rekap') { muatDaftarKaryawanUntukFilter(); muatRekapGaji(); }
+    else if (nama === 'rekap') muatRekapGaji();
     else if (nama === 'kuota') muatKuotaCuti();
     else if (nama === 'akun') muatDaftarAkun();
   }
@@ -277,23 +285,36 @@
     if (!bolehAkses('izin_verifikasi_lembur')) return;
     apiGet({ action: 'getAntreanLembur', actor_id_admin: sesiAdmin.id_admin })
       .then(function (data) {
-        var tbody = $('admin-lembur-tbody');
-        tbody.innerHTML = '';
-        if (!data.ok) return;
-        $('admin-lembur-kosong').classList.toggle('tersembunyi', data.antrean.length > 0);
-        data.antrean.forEach(function (s) {
-          var tr = document.createElement('tr');
-          tr.innerHTML =
-            '<td data-label="Nama">' + escapeHtml(s.nama) + '</td>' +
-            '<td data-label="Tanggal">' + escapeHtml(s.tanggal) + '</td>' +
-            '<td data-label="Mulai">' + escapeHtml(s.mulai.substring(0, 5)) + '</td>' +
-            '<td data-label="Selesai">' + escapeHtml(s.selesai.substring(0, 5)) + '</td>' +
-            '<td data-label="Durasi">' + formatDurasi(s.durasi_menit) + '</td>' +
-            '<td><button class="admin-btn-kecil admin-btn-verifikasi" data-id="' + escapeHtml(s.id_karyawan) + '" data-tanggal="' + escapeHtml(s.tanggal) + '">Verifikasi</button></td>';
-          tbody.appendChild(tr);
-        });
+        if (!data.ok) { dataLembur = []; gambarAntreanLembur(); return; }
+        dataLembur = data.antrean;
+        gambarAntreanLembur();
       });
   }
+
+  function gambarAntreanLembur() {
+    var tbody = $('admin-lembur-tbody');
+    tbody.innerHTML = '';
+    var tampil = dataLembur.filter(function (s) { return cocokDivisi('admin-filter-divisi-lembur', s.divisi); });
+    var kosong = $('admin-lembur-kosong');
+    kosong.textContent = dataLembur.length > 0 && tampil.length === 0
+      ? 'Tidak ada sesi lembur untuk divisi ini.'
+      : 'Tidak ada sesi lembur yang menunggu verifikasi.';
+    kosong.classList.toggle('tersembunyi', tampil.length > 0);
+    tampil.forEach(function (s) {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td data-label="Nama">' + escapeHtml(s.nama) + '</td>' +
+        '<td data-label="Divisi">' + tampilDivisi(s.divisi) + '</td>' +
+        '<td data-label="Tanggal">' + escapeHtml(s.tanggal) + '</td>' +
+        '<td data-label="Mulai">' + escapeHtml(s.mulai.substring(0, 5)) + '</td>' +
+        '<td data-label="Selesai">' + escapeHtml(s.selesai.substring(0, 5)) + '</td>' +
+        '<td data-label="Durasi">' + formatDurasi(s.durasi_menit) + '</td>' +
+        '<td><button class="admin-btn-kecil admin-btn-verifikasi" data-id="' + escapeHtml(s.id_karyawan) + '" data-tanggal="' + escapeHtml(s.tanggal) + '">Verifikasi</button></td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  $('admin-filter-divisi-lembur').addEventListener('change', gambarAntreanLembur);
 
   $('admin-lembur-tbody').addEventListener('click', function (e) {
     var btn = e.target.closest('.admin-btn-verifikasi');
@@ -320,41 +341,55 @@
     if (!bolehAkses('izin_lihat_pengajuan')) return;
     apiGet({ action: 'getAntreanPengajuan', actor_id_admin: sesiAdmin.id_admin })
       .then(function (data) {
-        var tbody = $('admin-pengajuan-tbody');
-        tbody.innerHTML = '';
-        if (!data.ok) return;
-        $('admin-pengajuan-kosong').classList.toggle('tersembunyi', data.antrean.length > 0);
-        $('admin-pengajuan-readonly-note').classList.toggle('tersembunyi', !!data.bisa_putuskan);
-
-        data.antrean.forEach(function (p) {
-          var rentang = p.tanggal_mulai === p.tanggal_selesai
-            ? p.tanggal_mulai
-            : p.tanggal_mulai + ' s/d ' + p.tanggal_selesai;
-          var lampiran = p.lampiran_url
-            ? '<a href="' + escapeHtml(p.lampiran_url) + '" target="_blank" rel="noopener">Lihat</a>'
-            : '—';
-          var sisaKuota = p.tipe_izin === 'CUTI' && typeof p.sisa_kuota_cuti === 'number'
-            ? p.sisa_kuota_cuti + ' hari'
-            : '—';
-          var aksi = data.bisa_putuskan
-            ? '<button class="admin-btn-kecil admin-btn-setujui" data-id="' + escapeHtml(p.id_pengajuan) + '">Setujui</button> ' +
-              '<button class="admin-btn-kecil admin-btn-tolak" data-id="' + escapeHtml(p.id_pengajuan) + '">Tolak</button>'
-            : '<span class="admin-teks-redup-kecil">Lihat saja</span>';
-          var tr = document.createElement('tr');
-          tr.innerHTML =
-            '<td data-label="Nama">' + escapeHtml(p.nama) + '</td>' +
-            '<td data-label="Jenis">' + escapeHtml(LABEL_IZIN_TAMPIL[p.tipe_izin] || p.tipe_izin) + '</td>' +
-            '<td data-label="Tanggal">' + escapeHtml(rentang) + '</td>' +
-            '<td data-label="Hari">' + p.jumlah_hari + '</td>' +
-            '<td data-label="Sisa Kuota Cuti">' + sisaKuota + '</td>' +
-            '<td class="admin-td-alasan" data-label="Alasan">' + escapeHtml(p.alasan) + '</td>' +
-            '<td data-label="Lampiran">' + lampiran + '</td>' +
-            '<td data-label="Diajukan">' + escapeHtml(p.diajukan_pada) + '</td>' +
-            '<td>' + aksi + '</td>';
-          tbody.appendChild(tr);
-        });
+        if (!data.ok) { dataPengajuan = []; gambarAntreanPengajuan(); return; }
+        dataPengajuan = data.antrean;
+        bisaPutuskanPengajuan = !!data.bisa_putuskan;
+        gambarAntreanPengajuan();
       });
   }
+
+  function gambarAntreanPengajuan() {
+    var tbody = $('admin-pengajuan-tbody');
+    tbody.innerHTML = '';
+    var tampil = dataPengajuan.filter(function (p) { return cocokDivisi('admin-filter-divisi-pengajuan', p.divisi); });
+    var kosong = $('admin-pengajuan-kosong');
+    kosong.textContent = dataPengajuan.length > 0 && tampil.length === 0
+      ? 'Tidak ada pengajuan untuk divisi ini.'
+      : 'Tidak ada pengajuan yang menunggu.';
+    kosong.classList.toggle('tersembunyi', tampil.length > 0);
+    $('admin-pengajuan-readonly-note').classList.toggle('tersembunyi', bisaPutuskanPengajuan);
+
+    tampil.forEach(function (p) {
+      var rentang = p.tanggal_mulai === p.tanggal_selesai
+        ? p.tanggal_mulai
+        : p.tanggal_mulai + ' s/d ' + p.tanggal_selesai;
+      var lampiran = p.lampiran_url
+        ? '<a href="' + escapeHtml(p.lampiran_url) + '" target="_blank" rel="noopener">Lihat</a>'
+        : '—';
+      var sisaKuota = p.tipe_izin === 'CUTI' && typeof p.sisa_kuota_cuti === 'number'
+        ? p.sisa_kuota_cuti + ' hari'
+        : '—';
+      var aksi = bisaPutuskanPengajuan
+        ? '<button class="admin-btn-kecil admin-btn-setujui" data-id="' + escapeHtml(p.id_pengajuan) + '">Setujui</button> ' +
+          '<button class="admin-btn-kecil admin-btn-tolak" data-id="' + escapeHtml(p.id_pengajuan) + '">Tolak</button>'
+        : '<span class="admin-teks-redup-kecil">Lihat saja</span>';
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td data-label="Nama">' + escapeHtml(p.nama) + '</td>' +
+        '<td data-label="Divisi">' + tampilDivisi(p.divisi) + '</td>' +
+        '<td data-label="Jenis">' + escapeHtml(LABEL_IZIN_TAMPIL[p.tipe_izin] || p.tipe_izin) + '</td>' +
+        '<td data-label="Tanggal">' + escapeHtml(rentang) + '</td>' +
+        '<td data-label="Hari">' + p.jumlah_hari + '</td>' +
+        '<td data-label="Sisa Kuota Cuti">' + sisaKuota + '</td>' +
+        '<td class="admin-td-alasan" data-label="Alasan">' + escapeHtml(p.alasan) + '</td>' +
+        '<td data-label="Lampiran">' + lampiran + '</td>' +
+        '<td data-label="Diajukan">' + escapeHtml(p.diajukan_pada) + '</td>' +
+        '<td>' + aksi + '</td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  $('admin-filter-divisi-pengajuan').addEventListener('change', gambarAntreanPengajuan);
 
   // TANPA prompt catatan (Fase 3, 2026-08-07) — klik Setujui/Tolak langsung
   // eksekusi, tidak ada dialog isi catatan lagi.
@@ -394,20 +429,89 @@
 
   var rekapDataTerakhir = [];
 
+  // Daftar karyawan aktif (cukup sekali per sesi) dipakai untuk dua hal: pilihan
+  // Divisi di semua tab, dan dropdown Karyawan di tab Rekap.
   function muatDaftarKaryawanUntukFilter() {
-    if (daftarKaryawanAktif.length > 0) return; // cukup sekali per sesi
+    if (daftarKaryawanAktif.length > 0 || sedangMuatDaftarKaryawan) return;
+    sedangMuatDaftarKaryawan = true;
     apiGet({ action: 'getKaryawan' }).then(function (data) {
+      sedangMuatDaftarKaryawan = false;
       if (!data.ok) return;
       daftarKaryawanAktif = data.karyawan;
-      var select = $('admin-rekap-karyawan');
-      daftarKaryawanAktif.forEach(function (k) {
+      isiPilihanDivisi();
+      isiPilihanKaryawanRekap();
+    }).catch(function () { sedangMuatDaftarKaryawan = false; });
+  }
+
+  // ---- Filter divisi (dipakai bersama 4 tab) ----
+
+  var SELECT_DIVISI_IDS = [
+    'admin-filter-divisi-lembur', 'admin-filter-divisi-pengajuan',
+    'admin-rekap-divisi', 'admin-filter-divisi-kuota'
+  ];
+
+  // Pilihan divisi diambil dari data karyawan (bukan ditulis manual di kode),
+  // jadi divisi baru di Sheet otomatis muncul. Ejaan/huruf besar-kecil
+  // dianggap sama supaya "Cafe" dan "CAFE" tidak jadi dua pilihan.
+  function daftarNamaDivisi() {
+    var terlihat = {};
+    var hasil = [];
+    daftarKaryawanAktif.forEach(function (k) {
+      var d = String(k.divisi || '').trim();
+      if (d && !terlihat[d.toLowerCase()]) {
+        terlihat[d.toLowerCase()] = true;
+        hasil.push(d);
+      }
+    });
+    hasil.sort();
+    return hasil;
+  }
+
+  function isiPilihanDivisi() {
+    var divisi = daftarNamaDivisi();
+    SELECT_DIVISI_IDS.forEach(function (id) {
+      var select = $(id);
+      var nilaiLama = select.value;
+      select.innerHTML = '<option value="">Semua divisi</option>';
+      divisi.forEach(function (d) {
+        var opt = document.createElement('option');
+        opt.value = d;
+        opt.textContent = d;
+        select.appendChild(opt);
+      });
+      select.value = nilaiLama;
+      if (select.selectedIndex < 0) select.selectedIndex = 0;
+    });
+  }
+
+  function cocokDivisi(selectId, divisiBaris) {
+    var pilihan = $(selectId).value;
+    return !pilihan || String(divisiBaris || '').trim().toLowerCase() === pilihan.toLowerCase();
+  }
+
+  function tampilDivisi(d) {
+    return d ? escapeHtml(d) : '—';
+  }
+
+  // Dropdown Karyawan di Rekap menyempit mengikuti divisi yang dipilih.
+  function isiPilihanKaryawanRekap() {
+    var select = $('admin-rekap-karyawan');
+    var nilaiLama = select.value;
+    select.innerHTML = '<option value="">Semua karyawan</option>';
+    daftarKaryawanAktif
+      .filter(function (k) { return cocokDivisi('admin-rekap-divisi', k.divisi); })
+      .sort(function (a, b) { return a.nama < b.nama ? -1 : a.nama > b.nama ? 1 : 0; })
+      .forEach(function (k) {
         var opt = document.createElement('option');
         opt.value = k.id_karyawan;
         opt.textContent = k.nama;
         select.appendChild(opt);
       });
-    });
+    select.value = nilaiLama;
+    if (select.selectedIndex < 0) select.selectedIndex = 0; // pilihan lama sudah tidak ada → kembali ke "Semua"
   }
+
+  $('admin-rekap-divisi').addEventListener('change', isiPilihanKaryawanRekap);
 
   function muatRekapGaji() {
     if (!bolehAkses('izin_lihat_rekap_gaji')) return;
@@ -424,6 +528,8 @@
     }
     var idKaryawan = $('admin-rekap-karyawan').value;
     if (idKaryawan) params.id_karyawan = idKaryawan;
+    var divisi = $('admin-rekap-divisi').value;
+    if (divisi) params.divisi = divisi;
 
     apiGet(Object.assign({ action: 'getRekapGaji' }, params))
       .then(function (data) {
@@ -438,7 +544,9 @@
           var tr = document.createElement('tr');
           tr.innerHTML =
             '<td data-label="Nama">' + escapeHtml(r.nama) + '</td>' +
+            '<td data-label="Divisi">' + tampilDivisi(r.divisi) + '</td>' +
             '<td data-label="Hari Kerja">' + r.hari_kerja + '</td>' +
+            '<td data-label="Terlambat">' + (r.terlambat || 0) + '</td>' +
             '<td data-label="Izin">' + r.hari_izin + '</td>' +
             '<td data-label="Cuti">' + r.hari_cuti + '</td>' +
             '<td data-label="Jam Lembur Terverifikasi">' + formatDurasi(r.menit_lembur_terverifikasi) + '</td>';
@@ -452,9 +560,9 @@
   // Export CSV — native (tanpa library), cukup buat kebutuhan sederhana ini.
   $('admin-btn-export-csv').addEventListener('click', function () {
     if (rekapDataTerakhir.length === 0) { alert('Tidak ada data rekap untuk diunduh. Klik Tampilkan dulu.'); return; }
-    var header = ['Nama', 'Hari Kerja', 'Izin', 'Cuti', 'Menit Lembur Terverifikasi'];
+    var header = ['Nama', 'Divisi', 'Hari Kerja', 'Terlambat', 'Izin', 'Cuti', 'Menit Lembur Terverifikasi'];
     var baris = rekapDataTerakhir.map(function (r) {
-      return [r.nama, r.hari_kerja, r.hari_izin, r.hari_cuti, r.menit_lembur_terverifikasi]
+      return [r.nama, r.divisi || '', r.hari_kerja, r.terlambat || 0, r.hari_izin, r.hari_cuti, r.menit_lembur_terverifikasi]
         .map(function (v) { return '"' + String(v).replace(/"/g, '""') + '"'; })
         .join(',');
     });
@@ -498,23 +606,32 @@
     if (sesiAdmin.role !== 'OWNER') return;
     apiGet({ action: 'getKuotaCuti', actor_id_admin: sesiAdmin.id_admin })
       .then(function (data) {
-        var tbody = $('admin-kuota-tbody');
-        tbody.innerHTML = '';
-        if (!data.ok) return;
-        data.kuota.forEach(function (k) {
-          var tr = document.createElement('tr');
-          tr.innerHTML =
-            '<td data-label="Nama">' + escapeHtml(k.nama) + '</td>' +
-            '<td data-label="Tanggal Daftar">' + escapeHtml(k.tanggal_daftar) + '</td>' +
-            '<td data-label="Kuota Otomatis">' + k.kuota_otomatis + ' hari</td>' +
-            '<td data-label="Override"><input type="number" min="0" class="admin-input-kuota" data-id="' + escapeHtml(k.id_karyawan) + '" value="' + escapeHtml(k.override) + '" placeholder="otomatis" /></td>' +
-            '<td data-label="Terpakai Thn Ini">' + k.terpakai + ' hari</td>' +
-            '<td data-label="Sisa">' + k.sisa + ' hari</td>' +
-            '<td><button class="admin-btn-kecil admin-btn-simpan-kuota" data-id="' + escapeHtml(k.id_karyawan) + '">Simpan</button></td>';
-          tbody.appendChild(tr);
-        });
+        dataKuota = data.ok ? data.kuota : [];
+        gambarKuotaCuti();
       });
   }
+
+  function gambarKuotaCuti() {
+    var tbody = $('admin-kuota-tbody');
+    tbody.innerHTML = '';
+    dataKuota
+      .filter(function (k) { return cocokDivisi('admin-filter-divisi-kuota', k.divisi); })
+      .forEach(function (k) {
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td data-label="Nama">' + escapeHtml(k.nama) + '</td>' +
+          '<td data-label="Divisi">' + tampilDivisi(k.divisi) + '</td>' +
+          '<td data-label="Tanggal Daftar">' + escapeHtml(k.tanggal_daftar) + '</td>' +
+          '<td data-label="Kuota Otomatis">' + k.kuota_otomatis + ' hari</td>' +
+          '<td data-label="Override"><input type="number" min="0" class="admin-input-kuota" data-id="' + escapeHtml(k.id_karyawan) + '" value="' + escapeHtml(k.override) + '" placeholder="otomatis" /></td>' +
+          '<td data-label="Terpakai Thn Ini">' + k.terpakai + ' hari</td>' +
+          '<td data-label="Sisa">' + k.sisa + ' hari</td>' +
+          '<td><button class="admin-btn-kecil admin-btn-simpan-kuota" data-id="' + escapeHtml(k.id_karyawan) + '">Simpan</button></td>';
+        tbody.appendChild(tr);
+      });
+  }
+
+  $('admin-filter-divisi-kuota').addEventListener('change', gambarKuotaCuti);
 
   $('admin-kuota-tbody').addEventListener('click', function (e) {
     var btn = e.target.closest('.admin-btn-simpan-kuota');

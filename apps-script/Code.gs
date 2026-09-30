@@ -13,7 +13,13 @@
  *        - Ditolak kalau hari itu sudah ada Cuti/Sakit/Izin yang DISETUJUI
  *          (lihat fitur Pengajuan Izin di bawah — cuti/sakit/izin TIDAK BISA
  *          di-self-report langsung dari layar absen).
+ *        - Absen MASUK dinilai terlambat/tidak (kolom status_waktu di tab Absensi,
+ *          LIHAT hitungStatusWaktu) — HANYA info utk admin, TIDAK muncul di respons
+ *          ke karyawan (layar karyawan sengaja tidak berubah).
  *   GET  ?action=riwayat&id_karyawan=..&bulan=YYYY-MM → data absen 1 bulan
+ *
+ * id_karyawan = "OKT" + NIK (mis. OKT123456). Nama kolom/parameter tetap
+ * id_karyawan di seluruh tab & API — cuma isinya yang berformat NIK.
  *
  * Endpoint admin dashboard:
  *   GET  ?action=getDaftarAdmin              → daftar semua akun admin
@@ -29,11 +35,12 @@
  *                            izin_lihat_rekap_gaji?, izin_lihat_pengajuan?}
  *   GET  ?action=getAntreanLembur&actor_id_admin=..         → sesi lembur belum diverifikasi
  *   POST action=verifikasiLembur {actor_id_admin, id_karyawan, tanggal}
- *   GET  ?action=getRekapGaji&actor_id_admin=..&bulan=YYYY-MM[&id_karyawan=..][&tanggal_mulai=..&tanggal_selesai=..]
- *        → rekap per karyawan: hari_kerja, hari_izin (Sakit+Izin), hari_cuti,
+ *   GET  ?action=getRekapGaji&actor_id_admin=..&bulan=YYYY-MM[&id_karyawan=..][&divisi=..][&tanggal_mulai=..&tanggal_selesai=..]
+ *        → rekap per karyawan: divisi, hari_kerja, terlambat (jumlah absen MASUK
+ *          berstatus TERLAMBAT), hari_izin (Sakit+Izin), hari_cuti,
  *          menit_lembur_terverifikasi. Filter: bulan (default) ATAU rentang custom
  *          (tanggal_mulai+tanggal_selesai, override bulan kalau keduanya diisi),
- *          plus id_karyawan opsional utk fokus 1 orang.
+ *          plus id_karyawan dan/atau divisi opsional.
  *
  * Endpoint Pengajuan Izin (Cuti/Sakit/Izin):
  *   POST action=ajukanIzin {id_karyawan, tipe_izin, tanggal_mulai, tanggal_selesai, alasan,
@@ -82,8 +89,16 @@ var SHEET_PENGAJUAN = 'Pengajuan';
 var DEFAULT_CONFIG = {
   lokasi_kantor_lat: -7.3234422729931525,
   lokasi_kantor_lng: 110.19331425092193,
-  radius_toleransi_m: 1000
+  radius_toleransi_m: 1000,
+  toleransi_terlambat_menit: 15
 };
+
+// Posisi kolom (0-based) yang ditambahkan belakangan — dibaca lewat konstanta
+// supaya jelas, dan aman kalau Sheet lama belum dimigrasi (nilai undefined
+// diperlakukan sebagai kosong).
+var KOL_KARYAWAN_DIVISI = 6;
+var KOL_KARYAWAN_JAM_KERJA = 7;
+var KOL_ABSENSI_STATUS_WAKTU = 14;
 
 // ===================== ROUTING =====================
 
@@ -143,7 +158,9 @@ function handleGetKaryawan() {
       id_karyawan: String(r[0]).trim(),
       nama: String(r[1]).trim(),
       // pin_hash kosong → frontend tampilkan layar "Buat PIN Baru"
-      perlu_pin_baru: String(r[2]).trim() === ''
+      perlu_pin_baru: String(r[2]).trim() === '',
+      // Dipakai dashboard admin (filter divisi). Layar karyawan mengabaikannya.
+      divisi: teksSel(r[KOL_KARYAWAN_DIVISI])
     });
   }
   return { ok: true, karyawan: list };
@@ -296,6 +313,10 @@ function handleAbsen(body) {
     var jarak = Math.round(haversineMeter(lat, lng, config.lokasi_kantor_lat, config.lokasi_kantor_lng));
     var statusLokasi = jarak <= config.radius_toleransi_m ? 'DALAM_RADIUS' : 'DILUAR_RADIUS';
     var statusVerifikasi = KELOMPOK_LEMBUR.indexOf(tipe) !== -1 ? 'BELUM_DIVERIFIKASI' : 'TIDAK_BERLAKU';
+    // Hanya MASUK yang dinilai terlambat. Jam diambil dari jam server (bukan HP).
+    var statusWaktu = tipe === 'MASUK'
+      ? hitungStatusWaktu(karyawan.jam_kerja, waktu, config.toleransi_terlambat_menit)
+      : 'TIDAK_BERLAKU';
 
     var idAbsen = 'ABS-' + Utilities.formatDate(now, TIMEZONE, 'yyyyMMdd-HHmmss') + '-' + id;
     getSheet(SHEET_ABSENSI).appendRow([
@@ -312,7 +333,8 @@ function handleAbsen(body) {
       '', // catatan — hanya diisi admin/sistem untuk baris input manual/pengajuan
       statusVerifikasi, // relevan khusus utk MULAI_LEMBUR/SELESAI_LEMBUR
       '', // diverifikasi_oleh
-      ''  // waktu_verifikasi
+      '', // waktu_verifikasi
+      statusWaktu // TEPAT_WAKTU / TERLAMBAT / TIDAK_BERLAKU — info admin saja
     ]);
 
     return {
@@ -354,9 +376,62 @@ function tulisAbsenTidakHadir(idKaryawan, nama, tanggal, tipe, catatan) {
   var idAbsen = 'ABS-' + tanggal.replace(/-/g, '') + '-IZIN-' + idKaryawan;
   getSheet(SHEET_ABSENSI).appendRow([
     idAbsen, idKaryawan, nama, tanggal, '00:00:00', tipe,
-    '', '', '', 'TIDAK_BERLAKU', catatan || '', 'TIDAK_BERLAKU', '', ''
+    '', '', '', 'TIDAK_BERLAKU', catatan || '', 'TIDAK_BERLAKU', '', '', 'TIDAK_BERLAKU'
   ]);
   return { ok: true };
+}
+
+// ---------- Jam kerja & status terlambat ----------
+
+// Teks jam_kerja di tab Karyawan, mis. "08.00 - 16.00" atau (dua shift)
+// "09.00 - 17.00 / 14.00 - 22.00". Pemisah jam boleh titik atau titik dua.
+// Kembalikan daftar shift dlm menit sejak 00:00. Teks kosong / tidak terbaca
+// → daftar kosong (= tidak ada jadwal, jangan pernah blokir absen).
+function parseJamKerja(teks) {
+  var hasil = [];
+  var re = /(\d{1,2})[.:](\d{2})\s*-\s*(\d{1,2})[.:](\d{2})/g;
+  var s = String(teks === undefined || teks === null ? '' : teks);
+  var m;
+  while ((m = re.exec(s)) !== null) {
+    var h1 = parseInt(m[1], 10), m1 = parseInt(m[2], 10);
+    var h2 = parseInt(m[3], 10), m2 = parseInt(m[4], 10);
+    if (h1 > 23 || m1 > 59 || h2 > 23 || m2 > 59) continue;
+    hasil.push({ mulai: h1 * 60 + m1, selesai: h2 * 60 + m2 });
+  }
+  return hasil;
+}
+
+// waktu = "HH:mm:ss" jam server. Terlambat kalau jam masuk (menit penuh, detik
+// diabaikan) lewat dari jam mulai shift + toleransi. Kalau ada >1 shift, shift
+// acuan = yang jam mulainya PALING DEKAT dgn jam absen (seri → shift pertama).
+function hitungStatusWaktu(jamKerjaTeks, waktu, toleransiMenit) {
+  var jadwal = parseJamKerja(jamKerjaTeks);
+  if (jadwal.length === 0) return 'TIDAK_BERLAKU';
+  var p = String(waktu).split(':');
+  var menit = parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+  if (isNaN(menit)) return 'TIDAK_BERLAKU';
+  var acuan = jadwal[0];
+  for (var i = 1; i < jadwal.length; i++) {
+    if (Math.abs(jadwal[i].mulai - menit) < Math.abs(acuan.mulai - menit)) acuan = jadwal[i];
+  }
+  var toleransi = isNaN(toleransiMenit) ? DEFAULT_CONFIG.toleransi_terlambat_menit : toleransiMenit;
+  return menit <= acuan.mulai + toleransi ? 'TEPAT_WAKTU' : 'TERLAMBAT';
+}
+
+// Sel Sheet bisa undefined (Sheet lama belum dimigrasi) atau bertipe angka.
+function teksSel(nilai) {
+  return nilai === undefined || nilai === null ? '' : String(nilai).trim();
+}
+
+// id_karyawan → divisi (sekali baca tab Karyawan), utk antrean Lembur/Pengajuan.
+function petaDivisiKaryawan() {
+  var rows = getSheet(SHEET_KARYAWAN).getDataRange().getValues();
+  var peta = {};
+  for (var i = 1; i < rows.length; i++) {
+    var id = String(rows[i][0]).trim();
+    if (id) peta[id] = teksSel(rows[i][KOL_KARYAWAN_DIVISI]);
+  }
+  return peta;
 }
 
 function cariAbsenHariIni(idKaryawan, tanggal, tipe) {
@@ -658,6 +733,7 @@ function handleGetAntreanLembur(actorId) {
     }
   }
 
+  var peta = petaDivisiKaryawan();
   var hasil = [];
   for (var key2 in sesi) {
     var s = sesi[key2];
@@ -666,6 +742,7 @@ function handleGetAntreanLembur(actorId) {
     hasil.push({
       id_karyawan: s.id_karyawan,
       nama: s.nama,
+      divisi: peta[s.id_karyawan] || '',
       tanggal: s.tanggal,
       mulai: s.mulai,
       selesai: s.selesai,
@@ -726,6 +803,7 @@ function handleGetRekapGaji(actorId, params) {
   var tanggalMulaiFilter = String(params.tanggal_mulai || '').trim();
   var tanggalSelesaiFilter = String(params.tanggal_selesai || '').trim();
   var idKaryawanFilter = String(params.id_karyawan || '').trim();
+  var divisiFilter = String(params.divisi || '').trim().toLowerCase();
   var pakaiRentangCustom = /^\d{4}-\d{2}-\d{2}$/.test(tanggalMulaiFilter) && /^\d{4}-\d{2}-\d{2}$/.test(tanggalSelesaiFilter);
 
   if (!pakaiRentangCustom && !/^\d{4}-\d{2}$/.test(bulan)) {
@@ -738,10 +816,14 @@ function handleGetRekapGaji(actorId, params) {
     var idK = String(karyawanRows[i][0]).trim();
     if (!idK) continue;
     if (idKaryawanFilter && idK !== idKaryawanFilter) continue;
+    var divisiK = teksSel(karyawanRows[i][KOL_KARYAWAN_DIVISI]);
+    if (divisiFilter && divisiK.toLowerCase() !== divisiFilter) continue;
     rekap[idK] = {
       id_karyawan: idK,
       nama: String(karyawanRows[i][1]).trim(),
+      divisi: divisiK,
       hari_kerja: 0,
+      terlambat: 0,
       hari_izin: 0,
       hari_cuti: 0,
       menit_lembur_terverifikasi: 0
@@ -759,7 +841,10 @@ function handleGetRekapGaji(actorId, params) {
       : (tgl.substring(0, 7) === bulan);
     if (!cocokRentang) continue;
     var tipe = String(rows[j][5]).trim().toUpperCase();
-    if (tipe === 'MASUK') rekap[idKar].hari_kerja += 1;
+    if (tipe === 'MASUK') {
+      rekap[idKar].hari_kerja += 1;
+      if (teksSel(rows[j][KOL_ABSENSI_STATUS_WAKTU]) === 'TERLAMBAT') rekap[idKar].terlambat += 1;
+    }
     if (tipe === 'SAKIT' || tipe === 'IZIN') rekap[idKar].hari_izin += 1;
     if (tipe === 'CUTI') rekap[idKar].hari_cuti += 1;
     if (tipe === 'MULAI_LEMBUR' || tipe === 'SELESAI_LEMBUR') {
@@ -929,10 +1014,12 @@ function handleGetAntreanPengajuan(actorId) {
   var cek = requireIzin(String(actorId || '').trim(), 'izin_lihat_pengajuan');
   if (!cek.ok) return cek;
   var rows = getSheet(SHEET_PENGAJUAN).getDataRange().getValues();
+  var peta = petaDivisiKaryawan();
   var hasil = [];
   for (var i = 1; i < rows.length; i++) {
     var p = pengajuanDariBaris(rows[i]);
     if (p.status !== 'PENDING') continue;
+    p.divisi = peta[p.id_karyawan] || '';
     if (p.tipe_izin === 'CUTI') p.sisa_kuota_cuti = hitungKuotaCutiKaryawan(p.id_karyawan).sisa;
     hasil.push(p);
   }
@@ -1010,7 +1097,8 @@ function hitungKuotaCutiKaryawan(idKaryawan) {
   var tanggalDaftar = '', override = '';
   for (var i = 1; i < rows.length; i++) {
     if (String(rows[i][0]).trim() !== idKaryawan) continue;
-    tanggalDaftar = String(rows[i][4]).trim();
+    // Sel tanggal_daftar sering bertipe Date di Sheet (kolom bertipe tanggal / hasil ketik manual) — normalisasi dulu
+    tanggalDaftar = normalisasiTanggal(rows[i][4]);
     override = rows.length > i && rows[i].length > 5 ? String(rows[i][5]).trim() : '';
     break;
   }
@@ -1051,6 +1139,7 @@ function handleGetKuotaCuti(actorId) {
     hasil.push({
       id_karyawan: idK,
       nama: String(rows[i][1]).trim(),
+      divisi: teksSel(rows[i][KOL_KARYAWAN_DIVISI]),
       tanggal_daftar: normalisasiTanggal(rows[i][4]),
       kuota: info.kuota,
       kuota_otomatis: info.kuota_otomatis,
@@ -1111,7 +1200,9 @@ function findKaryawan(id) {
       return {
         id_karyawan: id,
         nama: String(rows[i][1]).trim(),
-        status: String(rows[i][3]).trim()
+        status: String(rows[i][3]).trim(),
+        divisi: teksSel(rows[i][KOL_KARYAWAN_DIVISI]),
+        jam_kerja: teksSel(rows[i][KOL_KARYAWAN_JAM_KERJA])
       };
     }
   }
@@ -1161,30 +1252,39 @@ function setupSheet() {
 
   if (!ss.getSheetByName(SHEET_KARYAWAN)) {
     var k = ss.insertSheet(SHEET_KARYAWAN);
-    k.getRange(1, 1, 1, 6)
-      .setValues([['id_karyawan', 'nama', 'pin_hash', 'status', 'tanggal_daftar', 'kuota_cuti_override']])
+    k.getRange(1, 1, 1, 8)
+      .setValues([['id_karyawan', 'nama', 'pin_hash', 'status', 'tanggal_daftar', 'kuota_cuti_override', 'divisi', 'jam_kerja']])
       .setFontWeight('bold');
     // Karyawan contoh untuk testing internal Fase A
     var today = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd');
-    k.getRange(2, 1, 2, 6).setValues([
-      ['OKT001', 'Test Rama', '', 'Aktif', today, ''],
-      ['OKT002', 'Test Karyawan', '', 'Aktif', today, '']
+    k.getRange(2, 1, 2, 8).setValues([
+      ['OKT001', 'Test Rama', '', 'Aktif', today, '', '', ''],
+      ['OKT002', 'Test Karyawan', '', 'Aktif', today, '', '', '']
     ]);
     k.setFrozenRows(1);
   } else {
-    // Migrasi: tab Karyawan lama belum punya kolom kuota_cuti_override —
-    // tambahkan tanpa menyentuh data yang ada. Kosong = pakai perhitungan
-    // otomatis (12 hari/thn setelah 1 thn kerja).
+    // Migrasi: tab Karyawan lama belum punya kolom kuota_cuti_override /
+    // divisi / jam_kerja — tambahkan tanpa menyentuh data yang ada. Kosong =
+    // pakai perhitungan otomatis kuota cuti (12 hari/thn setelah 1 thn kerja)
+    // dan tanpa jadwal (status_waktu = TIDAK_BERLAKU).
     var karyawanLama = ss.getSheetByName(SHEET_KARYAWAN);
     var headerKaryawanLama = karyawanLama.getRange(1, 1, 1, Math.max(karyawanLama.getLastColumn(), 1)).getValues()[0];
     if (headerKaryawanLama.indexOf('kuota_cuti_override') === -1) {
       karyawanLama.getRange(1, 6).setValue('kuota_cuti_override').setFontWeight('bold');
     }
+    if (headerKaryawanLama.indexOf('divisi') === -1) {
+      karyawanLama.getRange(1, 7).setValue('divisi').setFontWeight('bold');
+    }
+    if (headerKaryawanLama.indexOf('jam_kerja') === -1) {
+      karyawanLama.getRange(1, 8).setValue('jam_kerja').setFontWeight('bold');
+    }
   }
+  // jam_kerja dipaksa format teks supaya "08.00 - 16.00" tidak diubah Sheet
+  ss.getSheetByName(SHEET_KARYAWAN).getRange('H:H').setNumberFormat('@');
 
   if (!ss.getSheetByName(SHEET_ABSENSI)) {
     var a = ss.insertSheet(SHEET_ABSENSI);
-    a.getRange(1, 1, 1, 14)
+    a.getRange(1, 1, 1, 15)
       .setValues([
         [
           'id_absen',
@@ -1200,7 +1300,8 @@ function setupSheet() {
           'catatan',
           'status_verifikasi',
           'diverifikasi_oleh',
-          'waktu_verifikasi'
+          'waktu_verifikasi',
+          'status_waktu'
         ]
       ])
       .setFontWeight('bold');
@@ -1217,6 +1318,12 @@ function setupSheet() {
         .setValues([['status_verifikasi', 'diverifikasi_oleh', 'waktu_verifikasi']])
         .setFontWeight('bold');
     }
+    // Migrasi: kolom status_waktu (terlambat/tepat waktu) di ujung kanan.
+    // Baris lama dibiarkan kosong = tidak dinilai.
+    var headerAbsensiTerbaru = absensiLama.getRange(1, 1, 1, Math.max(absensiLama.getLastColumn(), 1)).getValues()[0];
+    if (headerAbsensiTerbaru.indexOf('status_waktu') === -1) {
+      absensiLama.getRange(1, 15).setValue('status_waktu').setFontWeight('bold');
+    }
   }
 
   if (!ss.getSheetByName(SHEET_CONFIG)) {
@@ -1224,12 +1331,37 @@ function setupSheet() {
     c.getRange(1, 1, 1, 3)
       .setValues([['key', 'value', 'keterangan']])
       .setFontWeight('bold');
-    c.getRange(2, 1, 3, 3).setValues([
+    c.getRange(2, 1, 4, 3).setValues([
       ['lokasi_kantor_lat', DEFAULT_CONFIG.lokasi_kantor_lat, 'Latitude titik pusat Omah Kebon'],
       ['lokasi_kantor_lng', DEFAULT_CONFIG.lokasi_kantor_lng, 'Longitude titik pusat Omah Kebon'],
-      ['radius_toleransi_m', DEFAULT_CONFIG.radius_toleransi_m, 'Radius toleransi dalam meter (1km)']
+      ['radius_toleransi_m', DEFAULT_CONFIG.radius_toleransi_m, 'Radius toleransi dalam meter (1km)'],
+      ['toleransi_terlambat_menit', DEFAULT_CONFIG.toleransi_terlambat_menit, 'Toleransi terlambat absen masuk, dalam menit']
     ]);
     c.setFrozenRows(1);
+  } else {
+    // Migrasi: tab Config lama belum punya toleransi_terlambat_menit
+    // Ditulis di baris kosong PERTAMA di bawah header (bukan appendRow) supaya
+    // tetap benar walau di bawah tabel ada blok lain (mis. banner peringatan).
+    var configLama = ss.getSheetByName(SHEET_CONFIG);
+    var barisConfig = configLama.getDataRange().getValues();
+    var adaToleransi = false;
+    var barisKosongPertama = -1;
+    for (var ci = 1; ci < barisConfig.length; ci++) {
+      var kunciC = String(barisConfig[ci][0]).trim();
+      if (kunciC === 'toleransi_terlambat_menit') adaToleransi = true;
+      if (kunciC === '' && barisKosongPertama === -1) barisKosongPertama = ci + 1;
+    }
+    if (!adaToleransi) {
+      try {
+        var barisTulis = barisKosongPertama !== -1 ? barisKosongPertama : barisConfig.length + 1;
+        configLama.getRange(barisTulis, 1, 1, 3).setValues([[
+          'toleransi_terlambat_menit', DEFAULT_CONFIG.toleransi_terlambat_menit, 'Toleransi terlambat absen masuk, dalam menit'
+        ]]);
+      } catch (errConfig) {
+        Logger.log('PERHATIAN: gagal menambah baris toleransi_terlambat_menit di tab Config (' + errConfig +
+          '). Tambahkan manual: kolom A = toleransi_terlambat_menit, kolom B = 15. Tanpa baris ini sistem tetap memakai default 15 menit.');
+      }
+    }
   }
 
   if (!ss.getSheetByName(SHEET_ADMIN)) {

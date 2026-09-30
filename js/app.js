@@ -211,12 +211,22 @@
   function validasiSesi(sesi) {
     var sudahTampilOptimis = $('layar-absen').classList.contains('aktif');
     if (!sudahTampilOptimis) tampilkanLayar('layar-loading');
+
+    // Mulai ambil status absen hari ini SEKARANG JUGA — paralel dengan cek
+    // sesi di bawah, bukan menunggu cek sesi selesai dulu baru mulai (dua
+    // panggilan Apps Script berurutan = dobel waktu tunggu, tiap panggilan
+    // ~1-3 detik). Kalau ternyata sesi tidak valid (di-reset admin), device
+    // dipaksa setup ulang lewat mulaiSetupDenganDaftarSiap() di bawah — hasil
+    // riwayatPromise yang lagi berjalan diabaikan begitu saja (tidak dipakai,
+    // lihat guard "sesi masih sama" di cekAbsenHariIni).
+    var riwayatPromise = cekAbsenHariIni(sesi);
+
     apiGet({ action: 'getKaryawan' })
       .then(function (data) {
         if (!data.ok) {
           // gagal ambil data (bukan berarti sesi tidak valid) — tetap izinkan
           // pakai sesi lama supaya app tetap bisa dipakai saat koneksi jelek
-          bukaLayarAbsen(sesi);
+          bukaLayarAbsen(sesi, riwayatPromise);
           return;
         }
         daftarKaryawan = data.karyawan;
@@ -230,13 +240,13 @@
           localStorage.removeItem(KUNCI_CACHE_STATUS);
           mulaiSetupDenganDaftarSiap();
         } else {
-          bukaLayarAbsen(sesi);
+          bukaLayarAbsen(sesi, riwayatPromise);
         }
       })
       .catch(function () {
         // offline saat buka app — tetap izinkan pakai sesi lama, jangan
         // kunci karyawan keluar hanya karena tidak ada internet sesaat
-        if (!sudahTampilOptimis) bukaLayarAbsen(sesi);
+        if (!sudahTampilOptimis) bukaLayarAbsen(sesi, riwayatPromise);
       });
   }
 
@@ -392,12 +402,17 @@
 
   // ============ LAYAR ABSEN ============
 
-  function bukaLayarAbsen(sesi) {
+  // riwayatPromiseSiap (opsional): kalau pemanggil sudah lebih dulu memulai
+  // cekAbsenHariIni() sendiri (lihat validasiSesi — dijalankan paralel,
+  // bukan berurutan), jangan mulai fetch riwayat KEDUA di sini. Pemanggil
+  // lain (login baru, tombol sukses absen, dsb) tetap panggil tanpa argumen
+  // ini spt biasa — fetch riwayat baru akan dimulai seperti sebelumnya.
+  function bukaLayarAbsen(sesi, riwayatPromiseSiap) {
     $('nama-karyawan').textContent = sesi.nama;
     $('tanggal-hari-ini').textContent = formatTanggalIndonesia(new Date());
     setNavAktif('nav-absen');
     tampilkanLayar('layar-absen');
-    cekAbsenHariIni(sesi);
+    if (!riwayatPromiseSiap) cekAbsenHariIni(sesi);
   }
 
   // Gambar ulang KEEMPAT tombol Hadir/Lembur sesuai statusHariIni. Aturan ini
@@ -434,13 +449,22 @@
     btn.classList.toggle('selesai', selesai);
   }
 
+  // Return promise-nya (dipakai validasiSesi supaya bisa dimulai paralel
+  // dgn cek sesi — lihat komentar di sana). Pemanggil lain yang tidak butuh
+  // promise-nya (refresh, nav, dsb) tetap bisa panggil spt biasa tanpa pakai
+  // nilai baliknya.
   function cekAbsenHariIni(sesi) {
     var hariIni = new Date();
     var tglIni = tanggalISO(hariIni);
     var bulan = tglIni.substring(0, 7);
     statusHariIni = { masuk: null, pulang: null, mulai_lembur: null, selesai_lembur: null, tidak_hadir: null };
-    apiGet({ action: 'riwayat', id_karyawan: sesi.id_karyawan, bulan: bulan })
+    return apiGet({ action: 'riwayat', id_karyawan: sesi.id_karyawan, bulan: bulan })
       .then(function (data) {
+        // Sesi bisa saja sudah diganti/dihapus selagi request ini masih
+        // berjalan (mis. validasiSesi mendeteksi PIN direset admin & paksa
+        // logout) — kalau device sudah pindah sesi lain, jangan timpa apa pun.
+        var sesiSaatIni = getSesi();
+        if (!sesiSaatIni || sesiSaatIni.id_karyawan !== sesi.id_karyawan) return;
         if (!data.ok) return;
         data.records.forEach(function (r) {
           if (r.tanggal !== tglIni) return;

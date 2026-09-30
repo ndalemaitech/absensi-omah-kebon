@@ -214,7 +214,7 @@ async function test_run(nama, fn) {
     assert.ok(baris[0].textContent.indexOf('Cuti') !== -1);
     assert.ok(baris[0].querySelector('.admin-btn-setujui'));
     // Kolom Sisa Kuota Cuti muncul (walau OKT001 blm 1 thn kerja jadi 0 hari)
-    assert.ok(/hari/i.test(baris[0].cells[4].textContent));
+    assert.ok(/hari/i.test(baris[0].cells[5].textContent));
 
     win.document.querySelector('.admin-btn-setujui').dispatchEvent(new win.Event('click', { bubbles: true }));
     await tick(8);
@@ -335,9 +335,11 @@ async function test_run(nama, fn) {
     var baris = win.document.querySelectorAll('#admin-rekap-tbody tr');
     var rama = Array.prototype.filter.call(baris, function (tr) { return tr.textContent.indexOf('Test Rama') !== -1; })[0];
     assert.ok(rama);
-    assert.strictEqual(rama.cells[1].textContent, '1'); // hari_kerja
-    assert.strictEqual(rama.cells[2].textContent, '1'); // hari_izin
-    assert.strictEqual(rama.cells[3].textContent, '0'); // hari_cuti
+    assert.strictEqual(rama.cells[1].textContent, 'DIVISI A'); // divisi
+    assert.strictEqual(rama.cells[2].textContent, '1'); // hari_kerja
+    assert.strictEqual(rama.cells[3].textContent, '0'); // terlambat (OKT001 tanpa jam_kerja)
+    assert.strictEqual(rama.cells[4].textContent, '1'); // hari_izin
+    assert.strictEqual(rama.cells[5].textContent, '0'); // hari_cuti
   });
 
   await test_run('Rekap: filter rentang tanggal custom (dari/sampai) mengesampingkan bulan', async function () {
@@ -352,7 +354,7 @@ async function test_run(nama, fn) {
     await tick(8);
     var baris = win.document.querySelectorAll('#admin-rekap-tbody tr');
     var rama = Array.prototype.filter.call(baris, function (tr) { return tr.textContent.indexOf('Test Rama') !== -1; })[0];
-    assert.strictEqual(rama.cells[1].textContent, '1');
+    assert.strictEqual(rama.cells[2].textContent, '1'); // hari_kerja
   });
 
   // ===================== TAB: KUOTA CUTI KARYAWAN (khusus Owner) =====================
@@ -380,6 +382,173 @@ async function test_run(nama, fn) {
     assert.strictEqual(cek.kuota, 20);
   });
 
+  // ===================== DIVISI & TERLAMBAT =====================
+
+  function teksBaris(tbodyId, win) {
+    return Array.prototype.map.call(win.document.querySelectorAll('#' + tbodyId + ' tr'), function (tr) { return tr.textContent; });
+  }
+  function pilihDivisi(win, selectId, nilai) {
+    var s = $(win, selectId);
+    s.value = nilai;
+    s.dispatchEvent(new win.Event('change', { bubbles: true }));
+  }
+  function opsi(win, selectId) {
+    return Array.prototype.map.call($(win, selectId).options, function (o) { return o.value; });
+  }
+
+  await test_run('Rekap: kolom Terlambat menghitung absen Masuk terlambat (karyawan dgn jam_kerja)', async function () {
+    backend.getSheetData('Karyawan')[1][7] = '08.00 - 16.00'; // OKT001, sekarang 09:00 WIB → terlambat
+    backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MASUK', lat: -7.32, lng: 110.19 });
+    var win = buatDevice();
+    await loginAdmin(win, 'ADM001', '1111');
+    pindahTabUji(win, 'rekap');
+    await tick(8);
+    $(win, 'admin-rekap-bulan').value = '2026-07';
+    klik(win, 'admin-btn-muat-rekap');
+    await tick(8);
+    var baris = win.document.querySelectorAll('#admin-rekap-tbody tr');
+    var rama = Array.prototype.filter.call(baris, function (tr) { return tr.textContent.indexOf('Test Rama') !== -1; })[0];
+    assert.strictEqual(rama.cells[2].textContent, '1'); // hari kerja
+    assert.strictEqual(rama.cells[3].textContent, '1'); // terlambat
+    var header = Array.prototype.map.call(win.document.querySelectorAll('#admin-rekap-tabel thead th'), function (th) { return th.textContent; });
+    assert.deepStrictEqual(header.slice(0, 4), ['Nama', 'Divisi', 'Hari Kerja', 'Terlambat']);
+  });
+
+  await test_run('Rekap: pilihan Divisi terisi dari data karyawan, filter Divisi menyaring tabel', async function () {
+    var win = buatDevice();
+    await loginAdmin(win, 'ADM001', '1111');
+    pindahTabUji(win, 'rekap');
+    await tick(8);
+    assert.deepStrictEqual(opsi(win, 'admin-rekap-divisi'), ['', 'DIVISI A', 'DIVISI B']);
+    $(win, 'admin-rekap-bulan').value = '2026-07';
+    pilihDivisi(win, 'admin-rekap-divisi', 'DIVISI B');
+    klik(win, 'admin-btn-muat-rekap');
+    await tick(8);
+    var baris = teksBaris('admin-rekap-tbody', win);
+    assert.strictEqual(baris.length, 1);
+    assert.ok(baris[0].indexOf('Test Karyawan') !== -1);
+  });
+
+  await test_run('Rekap: dropdown Karyawan menyempit mengikuti Divisi terpilih', async function () {
+    var win = buatDevice();
+    await loginAdmin(win, 'ADM001', '1111');
+    pindahTabUji(win, 'rekap');
+    await tick(8);
+    assert.deepStrictEqual(opsi(win, 'admin-rekap-karyawan'), ['', 'OKT002', 'OKT001'] /* urut nama: Test Karyawan, Test Rama */);
+    pilihDivisi(win, 'admin-rekap-divisi', 'DIVISI A');
+    assert.deepStrictEqual(opsi(win, 'admin-rekap-karyawan'), ['', 'OKT001']);
+    // karyawan yang tadinya dipilih tapi beda divisi → kembali ke "Semua karyawan"
+    $(win, 'admin-rekap-karyawan').value = 'OKT001';
+    pilihDivisi(win, 'admin-rekap-divisi', 'DIVISI B');
+    assert.strictEqual($(win, 'admin-rekap-karyawan').value, '');
+    pilihDivisi(win, 'admin-rekap-divisi', '');
+    assert.deepStrictEqual(opsi(win, 'admin-rekap-karyawan'), ['', 'OKT002', 'OKT001'] /* urut nama: Test Karyawan, Test Rama */);
+  });
+
+  await test_run('Rekap: export CSV memuat kolom Divisi & Terlambat', async function () {
+    backend.getSheetData('Karyawan')[1][7] = '08.00 - 16.00';
+    backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MASUK', lat: -7.32, lng: 110.19 });
+    var win = buatDevice();
+    var blobDiambil = null;
+    win.URL.createObjectURL = function (b) { blobDiambil = b; return 'blob:tes'; };
+    win.URL.revokeObjectURL = function () { };
+    win.HTMLAnchorElement.prototype.click = function () { };
+    await loginAdmin(win, 'ADM001', '1111');
+    pindahTabUji(win, 'rekap');
+    await tick(8);
+    $(win, 'admin-rekap-bulan').value = '2026-07';
+    klik(win, 'admin-btn-muat-rekap');
+    await tick(8);
+    klik(win, 'admin-btn-export-csv');
+    assert.ok(blobDiambil, 'CSV harusnya dibuat');
+    var isi = await new Promise(function (resolve) {
+      var fr = new win.FileReader();
+      fr.onload = function () { resolve(fr.result); };
+      fr.readAsText(blobDiambil);
+    });
+    var baris = isi.split('\n');
+    assert.strictEqual(baris[0], 'Nama,Divisi,Hari Kerja,Terlambat,Izin,Cuti,Menit Lembur Terverifikasi');
+    var rama = baris.filter(function (b) { return b.indexOf('Test Rama') !== -1; })[0];
+    assert.strictEqual(rama, '"Test Rama","DIVISI A","1","1","0","0","0"');
+  });
+
+  await test_run('Verifikasi Lembur: kolom Divisi + filter Divisi', async function () {
+    ['OKT001', 'OKT002'].forEach(function (id) {
+      backend.doPost({ action: 'absen', id_karyawan: id, tipe_absen: 'MULAI_LEMBUR', lat: -7.32, lng: 110.19 });
+      backend.doPost({ action: 'absen', id_karyawan: id, tipe_absen: 'SELESAI_LEMBUR', lat: -7.32, lng: 110.19 });
+    });
+    var win = buatDevice();
+    await loginAdmin(win, 'ADM001', '1111');
+    await tick(8);
+    assert.strictEqual(teksBaris('admin-lembur-tbody', win).length, 2);
+    var barisA = win.document.querySelector('#admin-lembur-tbody tr');
+    assert.ok(/DIVISI [AB]/.test(barisA.cells[1].textContent));
+    pilihDivisi(win, 'admin-filter-divisi-lembur', 'DIVISI A');
+    var tampil = teksBaris('admin-lembur-tbody', win);
+    assert.strictEqual(tampil.length, 1);
+    assert.ok(tampil[0].indexOf('Test Rama') !== -1);
+    assert.strictEqual($(win, 'admin-lembur-kosong').classList.contains('tersembunyi'), true);
+    // hapus filter → semua sesi muncul lagi
+    pilihDivisi(win, 'admin-filter-divisi-lembur', '');
+    assert.strictEqual(teksBaris('admin-lembur-tbody', win).length, 2);
+  });
+
+  await test_run('Verifikasi Lembur: divisi yang ada tapi tanpa sesi → pesan kosong khusus divisi', async function () {
+    backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'MULAI_LEMBUR', lat: -7.32, lng: 110.19 });
+    backend.doPost({ action: 'absen', id_karyawan: 'OKT001', tipe_absen: 'SELESAI_LEMBUR', lat: -7.32, lng: 110.19 });
+    var win = buatDevice();
+    await loginAdmin(win, 'ADM001', '1111');
+    await tick(8);
+    pilihDivisi(win, 'admin-filter-divisi-lembur', 'DIVISI B');
+    assert.strictEqual(teksBaris('admin-lembur-tbody', win).length, 0);
+    assert.strictEqual($(win, 'admin-lembur-kosong').classList.contains('tersembunyi'), false);
+    assert.ok($(win, 'admin-lembur-kosong').textContent.indexOf('divisi ini') !== -1);
+  });
+
+  await test_run('Pengajuan: kolom Divisi + filter Divisi (Owner masih bisa putuskan hasil filter)', async function () {
+    backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT001', tipe_izin: 'SAKIT', tanggal_mulai: '2026-08-05', tanggal_selesai: '2026-08-05', alasan: 'Demam' });
+    backend.doPost({ action: 'ajukanIzin', id_karyawan: 'OKT002', tipe_izin: 'IZIN', tanggal_mulai: '2026-08-06', tanggal_selesai: '2026-08-06', alasan: 'Acara' });
+    var win = buatDevice();
+    await loginAdmin(win, 'ADM001', '1111');
+    pindahTabUji(win, 'pengajuan');
+    await tick(8);
+    assert.strictEqual(teksBaris('admin-pengajuan-tbody', win).length, 2);
+    pilihDivisi(win, 'admin-filter-divisi-pengajuan', 'DIVISI B');
+    var tampil = win.document.querySelectorAll('#admin-pengajuan-tbody tr');
+    assert.strictEqual(tampil.length, 1);
+    assert.strictEqual(tampil[0].cells[0].textContent, 'Test Karyawan');
+    assert.strictEqual(tampil[0].cells[1].textContent, 'DIVISI B');
+    assert.ok(tampil[0].querySelector('.admin-btn-setujui'));
+    tampil[0].querySelector('.admin-btn-setujui').dispatchEvent(new win.Event('click', { bubbles: true }));
+    await tick(8);
+    assert.strictEqual(backend.getSheetData('Pengajuan')[2][9], 'DISETUJUI');
+    assert.strictEqual(backend.getSheetData('Pengajuan')[1][9], 'PENDING'); // divisi A tidak tersentuh
+  });
+
+  await test_run('Kuota Cuti: kolom Divisi + filter Divisi', async function () {
+    var win = buatDevice();
+    await loginAdmin(win, 'ADM001', '1111');
+    pindahTabUji(win, 'kuota');
+    await tick(8);
+    assert.strictEqual(teksBaris('admin-kuota-tbody', win).length, 2);
+    pilihDivisi(win, 'admin-filter-divisi-kuota', 'DIVISI A');
+    var tampil = win.document.querySelectorAll('#admin-kuota-tbody tr');
+    assert.strictEqual(tampil.length, 1);
+    assert.strictEqual(tampil[0].cells[0].textContent, 'Test Rama');
+    assert.strictEqual(tampil[0].cells[1].textContent, 'DIVISI A');
+  });
+
+  await test_run('Divisi kosong di Sheet tampil "—" dan tidak masuk daftar pilihan filter', async function () {
+    backend.getSheetData('Karyawan')[2][6] = ''; // OKT002 tanpa divisi
+    var win = buatDevice();
+    await loginAdmin(win, 'ADM001', '1111');
+    pindahTabUji(win, 'kuota');
+    await tick(8);
+    assert.deepStrictEqual(opsi(win, 'admin-filter-divisi-kuota'), ['', 'DIVISI A']);
+    var baris = win.document.querySelectorAll('#admin-kuota-tbody tr');
+    var tk = Array.prototype.filter.call(baris, function (tr) { return tr.cells[0].textContent === 'Test Karyawan'; })[0];
+    assert.strictEqual(tk.cells[1].textContent, '—');
+  });
   console.log('');
   console.log(total - gagal + '/' + total + ' test e2e admin PASS');
   if (gagal > 0) process.exit(1);
